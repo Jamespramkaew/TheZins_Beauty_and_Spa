@@ -1,0 +1,19 @@
+# Rules shared by frontend/ and backend/
+# (each app can add its own rules in its own .gitignore)
+
+# Dependencies
+node_modules
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS / Editor
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
