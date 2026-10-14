@@ -5,6 +5,7 @@ import "time"
 // Branch
 type Branch struct {
 	ID       string `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	Code     string `gorm:"type:varchar(10);not null;uniqueIndex" json:"code"` // รหัสสาขาในเลขบิล เช่น S1
 	Name     string `gorm:"type:varchar(100);not null" json:"name"`
 	IsActive bool   `gorm:"not null;default:true" json:"is_active"`
 }
