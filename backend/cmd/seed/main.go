@@ -50,6 +50,11 @@ func main() {
 	// Seed data
 	log.Println("Starting to seed data...")
 
+	if err := database.SeedBranches(db); err != nil {
+		log.Fatalf("Failed to seed branches: %v", err)
+	}
+	log.Println("✅ Seeded branches")
+
 	if err := seedExamples(db); err != nil {
 		log.Fatalf("Failed to seed examples: %v", err)
 	}
