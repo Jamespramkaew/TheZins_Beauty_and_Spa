@@ -24,8 +24,9 @@ func (Order) TableName() string { return "orders" }
 // OrderItem = รายการในบิล (คอร์ส / สินค้า / เครดิต VIP)
 type OrderItem struct {
 	ID           string              `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	OrderID      string              `gorm:"type:uuid;not null;index" json:"order_id"`
+	OrderID      string              `gorm:"type:uuid;not null;uniqueIndex:uq_order_items_order_line,priority:1" json:"order_id"`
 	Order        *Order              `gorm:"foreignKey:OrderID" json:"order,omitempty"`
+	LineNo       int                 `gorm:"not null;check:line_no >= 1;uniqueIndex:uq_order_items_order_line,priority:2" json:"line_no"` // ลำดับบรรทัดในบิล 1, 2, 3, ...
 	ItemType     string              `gorm:"type:varchar(10);not null;check:item_type IN ('course','stock','credit')" json:"item_type"`
 	CourseID     *string             `gorm:"type:uuid" json:"course_id"`
 	Course       *Course             `gorm:"foreignKey:CourseID" json:"course,omitempty"`
