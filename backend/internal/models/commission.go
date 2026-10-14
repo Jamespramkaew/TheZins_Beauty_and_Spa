@@ -8,7 +8,7 @@ import (
 
 // CommissionRate
 type CommissionRate struct {
-	ID        uint                `gorm:"primaryKey" json:"id"`
+	ID        string              `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	Type      string              `gorm:"type:varchar(20);not null;check:type IN ('course_sale','product_sale')" json:"type"`
 	MinAmount decimal.Decimal     `gorm:"type:numeric(12,2);not null" json:"min_amount"`
 	MaxAmount decimal.NullDecimal `gorm:"type:numeric(12,2)" json:"max_amount"`   // null = ไม่มีเพดาน
@@ -20,8 +20,8 @@ func (CommissionRate) TableName() string { return "commission_rates" }
 // CommissionPayout
 // เมื่อ paid_at มีค่าแล้ว ถือว่าล็อก ห้ามแก้
 type CommissionPayout struct {
-	ID              uint            `gorm:"primaryKey" json:"id"`
-	EmployeeID      uint            `gorm:"not null;index" json:"employee_id"`
+	ID              string          `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	EmployeeID      string          `gorm:"type:uuid;not null;index" json:"employee_id"`
 	Employee        *Employee       `gorm:"foreignKey:EmployeeID" json:"employee,omitempty"`
 	PeriodStart     time.Time       `gorm:"type:date;not null" json:"period_start"`
 	PeriodEnd       time.Time       `gorm:"type:date;not null" json:"period_end"`

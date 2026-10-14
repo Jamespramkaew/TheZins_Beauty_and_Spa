@@ -9,7 +9,7 @@ import (
 
 // Customer
 type Customer struct {
-	ID        uint       `gorm:"primaryKey" json:"id"`
+	ID        string     `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	Fname     string     `gorm:"type:varchar(100);not null" json:"fname"`
 	Lname     string     `gorm:"type:varchar(100)" json:"lname"`
 	Address   string     `gorm:"type:text" json:"address"`
@@ -25,11 +25,11 @@ func (Customer) TableName() string { return "customers" }
 
 // TierChange
 type TierChange struct {
-	ID            uint      `gorm:"primaryKey" json:"id"`
-	CustomerID    uint      `gorm:"not null;index" json:"customer_id"`
+	ID            string    `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	CustomerID    string    `gorm:"type:uuid;not null;index" json:"customer_id"`
 	Customer      *Customer `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
 	NewTier       string    `gorm:"type:varchar(10);not null;check:new_tier IN ('general','vip')" json:"new_tier"`
-	ChangedBy     uint      `gorm:"not null" json:"changed_by"` // user ที่เป็นคนเปลี่ยน
+	ChangedBy     string    `gorm:"type:uuid;not null" json:"changed_by"` // user ที่เป็นคนเปลี่ยน
 	ChangedByUser *User     `gorm:"foreignKey:ChangedBy" json:"changed_by_user,omitempty"`
 	ChangedAt     time.Time `gorm:"not null;autoCreateTime" json:"changed_at"`
 }
@@ -38,7 +38,7 @@ func (TierChange) TableName() string { return "tier_changes" }
 
 // Course
 type Course struct {
-	ID          uint            `gorm:"primaryKey" json:"id"`
+	ID          string          `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	Name        string          `gorm:"type:varchar(150);not null" json:"name"`
 	Price       decimal.Decimal `gorm:"type:numeric(12,2);not null;check:price >= 0" json:"price"`
 	MaxSession  int             `gorm:"not null;check:max_session >= 1" json:"max_session"`
@@ -57,7 +57,7 @@ func (Course) TableName() string { return "courses" }
 // uses_per_unit = 1 → ตัดสต็อก use -1 ทุกครั้งที่ใช้บริการ
 // uses_per_unit > 1 → ตัดสต็อก open -1 ตอนเปิด (ดู StockContainer)
 type Stock struct {
-	ID          uint            `gorm:"primaryKey" json:"id"`
+	ID          string          `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	Name        string          `gorm:"type:varchar(150);not null" json:"name"`
 	Price       decimal.Decimal `gorm:"type:numeric(12,2);not null;default:0" json:"price"`
 	IsSellable  bool            `gorm:"not null" json:"is_sellable"` // false = ใช้ในบริการอย่างเดียว
@@ -76,9 +76,9 @@ func (Stock) TableName() string { return "stocks" }
 //
 //	ของที่ uses_per_unit > 1 → จำนวนครั้งของกระปุกที่ใช้ต่อการทำ 1 ครั้ง
 type CourseItem struct {
-	CourseID uint    `gorm:"primaryKey;autoIncrement:false" json:"course_id"`
+	CourseID string  `gorm:"type:uuid;primaryKey" json:"course_id"`
 	Course   *Course `gorm:"foreignKey:CourseID" json:"course,omitempty"`
-	StockID  uint    `gorm:"primaryKey;autoIncrement:false" json:"stock_id"`
+	StockID  string  `gorm:"type:uuid;primaryKey" json:"stock_id"`
 	Stock    *Stock  `gorm:"foreignKey:StockID" json:"stock,omitempty"`
 	UseQty   int     `gorm:"not null;check:use_qty > 0" json:"use_qty"`
 }
