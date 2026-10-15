@@ -17,6 +17,7 @@ func Connect(dsn string) (*gorm.DB, error) {
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
+		TranslateError: true,
 	}
 
 	db, err := gorm.Open(postgres.Open(dsn), config)
@@ -41,7 +42,6 @@ func Connect(dsn string) (*gorm.DB, error) {
 
 	return db, nil
 }
-
 
 func Close(db *gorm.DB) error {
 	sqlDB, err := db.DB()
