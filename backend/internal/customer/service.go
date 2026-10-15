@@ -1,0 +1,210 @@
+package customer
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"backend/internal/models"
+
+	"gorm.io/gorm"
+)
+
+// error ที่ handler ใช้เลือก HTTP status
+var (
+	ErrNotFound     = errors.New("customer not found")   // 404
+	ErrDuplicateHN  = errors.New("hn_no already exists") // 409
+	ErrInvalidInput = errors.New("invalid input")        // 400
+)
+
+// searchLimit = จำนวนผลค้นหาสูงสุดต่อครั้ง (V1 ยังไม่มี pagination)
+const searchLimit = 50
+
+var (
+	uuidPattern      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	citizenIDPattern = regexp.MustCompile(`^[0-9]{13}$`)
+)
+
+type Service interface {
+	Search(ctx context.Context, q string) ([]models.Customer, error)
+	GetByID(ctx context.Context, id string) (*models.Customer, error)
+	Create(ctx context.Context, req CreateCustomer) (*models.Customer, error)
+	Update(ctx context.Context, id string, req UpdateCustomer) (*models.Customer, error)
+}
+
+type service struct {
+	repository Repository
+}
+
+func NewService(repository Repository) Service {
+	return &service{repository: repository}
+}
+
+func (s *service) Search(ctx context.Context, q string) ([]models.Customer, error) {
+	return s.repository.Search(ctx, strings.TrimSpace(q), searchLimit)
+}
+
+func (s *service) GetByID(ctx context.Context, id string) (*models.Customer, error) {
+	// id ที่ไม่ใช่ UUID ไม่มีในตารางแน่นอน และถ้าส่งไปถึง PostgreSQL จะ error กลายเป็น 500
+	if !uuidPattern.MatchString(id) {
+		return nil, ErrNotFound
+	}
+
+	customer, err := s.repository.GetByID(ctx, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return customer, err
+}
+
+func (s *service) Create(ctx context.Context, req CreateCustomer) (*models.Customer, error) {
+	customer := models.Customer{
+		HnNo:    strings.TrimSpace(req.HnNo),
+		Fname:   strings.TrimSpace(req.Fname),
+		Lname:   strings.TrimSpace(req.Lname),
+		Tel:     strings.TrimSpace(req.Tel),
+		Address: strings.TrimSpace(req.Address),
+	}
+
+	if err := checkText("hn_no", customer.HnNo, true, 20); err != nil {
+		return nil, err
+	}
+	if err := checkText("fname", customer.Fname, true, 100); err != nil {
+		return nil, err
+	}
+	if err := checkText("lname", customer.Lname, false, 100); err != nil {
+		return nil, err
+	}
+	if err := checkText("tel", customer.Tel, false, 20); err != nil {
+		return nil, err
+	}
+
+	var err error
+	if customer.CitizenID, err = parseCitizenID(req.CitizenID); err != nil {
+		return nil, err
+	}
+	if customer.BDay, err = parseBDay(req.BDay); err != nil {
+		return nil, err
+	}
+
+	if err := s.repository.Create(ctx, &customer); err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return nil, ErrDuplicateHN
+		}
+		return nil, err
+	}
+	return &customer, nil
+}
+
+func (s *service) Update(ctx context.Context, id string, req UpdateCustomer) (*models.Customer, error) {
+	// เช็คก่อนว่ามีลูกค้าคนนี้ ไม่มีก็ตอบ 404
+	if _, err := s.GetByID(ctx, id); err != nil {
+		return nil, err
+	}
+
+	// เก็บเฉพาะ field ที่ส่งมา (pointer ไม่เป็น nil)
+	fields := map[string]any{}
+
+	if err := setText(fields, "hn_no", req.HnNo, true, 20); err != nil {
+		return nil, err
+	}
+	if err := setText(fields, "fname", req.Fname, true, 100); err != nil {
+		return nil, err
+	}
+	if err := setText(fields, "lname", req.Lname, false, 100); err != nil {
+		return nil, err
+	}
+	if err := setText(fields, "tel", req.Tel, false, 20); err != nil {
+		return nil, err
+	}
+	if req.Address != nil {
+		fields["address"] = strings.TrimSpace(*req.Address)
+	}
+	if req.CitizenID != nil {
+		citizenID, err := parseCitizenID(req.CitizenID)
+		if err != nil {
+			return nil, err
+		}
+		fields["citizen_id"] = citizenID // nil = ล้างค่าเป็น NULL
+	}
+	if req.BDay != nil {
+		bDay, err := parseBDay(req.BDay)
+		if err != nil {
+			return nil, err
+		}
+		fields["b_day"] = bDay // nil = ล้างค่าเป็น NULL
+	}
+
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("%w: no fields to update", ErrInvalidInput)
+	}
+
+	if err := s.repository.Update(ctx, id, fields); err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return nil, ErrDuplicateHN
+		}
+		return nil, err
+	}
+
+	// ดึงใหม่เพื่อส่งข้อมูลหลังแก้กลับไป
+	return s.repository.GetByID(ctx, id)
+}
+
+// checkText ตรวจว่าต้องมีค่าไหม และยาวไม่เกิน maxLen ตัวอักษร
+func checkText(field, value string, required bool, maxLen int) error {
+	if required && value == "" {
+		return fmt.Errorf("%w: %s is required", ErrInvalidInput, field)
+	}
+	if utf8.RuneCountInString(value) > maxLen {
+		return fmt.Errorf("%w: %s must be at most %d characters", ErrInvalidInput, field, maxLen)
+	}
+	return nil
+}
+
+// setText ใช้ตอน PATCH: ถ้าส่งมา (ไม่เป็น nil) ให้ตัดช่องว่าง ตรวจ แล้วใส่ลง fields
+func setText(fields map[string]any, column string, value *string, required bool, maxLen int) error {
+	if value == nil {
+		return nil
+	}
+	v := strings.TrimSpace(*value)
+	if err := checkText(column, v, required, maxLen); err != nil {
+		return err
+	}
+	fields[column] = v
+	return nil
+}
+
+// parseCitizenID: nil หรือ "" = ไม่มีค่า (NULL), นอกนั้นต้องเป็นตัวเลข 13 หลัก
+func parseCitizenID(value *string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	v := strings.TrimSpace(*value)
+	if v == "" {
+		return nil, nil
+	}
+	if !citizenIDPattern.MatchString(v) {
+		return nil, fmt.Errorf("%w: citizen_id must be 13 digits", ErrInvalidInput)
+	}
+	return &v, nil
+}
+
+// parseBDay: nil หรือ "" = ไม่มีค่า (NULL), นอกนั้นต้องเป็นรูปแบบ YYYY-MM-DD
+func parseBDay(value *string) (*time.Time, error) {
+	if value == nil {
+		return nil, nil
+	}
+	v := strings.TrimSpace(*value)
+	if v == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.DateOnly, v)
+	if err != nil {
+		return nil, fmt.Errorf("%w: b_day must be YYYY-MM-DD", ErrInvalidInput)
+	}
+	return &t, nil
+}

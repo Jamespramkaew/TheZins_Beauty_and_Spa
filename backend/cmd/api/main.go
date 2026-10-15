@@ -20,7 +20,6 @@ import (
 
 ///////////////////////////////////////////////////////////////////
 
-
 func main() {
 
 	log.SetPrefix("[server] ")
@@ -48,7 +47,6 @@ func main() {
 	}
 	log.Println("Database migration completed")
 
-
 	// Initialize Dependency Container
 	c := container.NewContainer(db, cfg)
 	defer c.Close()
@@ -75,10 +73,8 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-
 	// Routes
 	setupRoute(app, c)
-
 
 	// Graceful shutdown
 	go func() {
@@ -129,13 +125,11 @@ func setupRoute(app *fiber.App, c *container.Container) {
 		})
 	})
 
-
 	// API Routes
-	//api := app.Group("/api")
+	api := app.Group("/api")
 
-	// TODO: Register module routes here
-
-
+	// Register Customer Routes
+	c.CustomerHandler.RegisterRoutes(api)
 
 	// 404 Handler
 	app.Use(func(c fiber.Ctx) error {
