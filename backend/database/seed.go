@@ -5,6 +5,7 @@ import (
 
 	"backend/internal/models"
 
+	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -56,6 +57,44 @@ func SeedUsers(db *gorm.DB) error {
 			BranchID: &b.ID,
 		}
 		err := db.Where(models.User{Username: user.Username}).FirstOrCreate(&user).Error
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SeedCourses สร้างคอร์สตัวอย่าง รันซ้ำได้ (มีชื่อคอร์สนี้อยู่แล้วจะข้าม)
+func SeedCourses(db *gorm.DB) error {
+	courses := []models.Course{
+		{Name: "คอร์สหน้าใส 10 ครั้ง", Price: decimal.NewFromInt(3500), MaxSession: 10, ValidDay: new(180), Category: "facial"},
+		{Name: "คอร์สนวดหน้า 5 ครั้ง", Price: decimal.NewFromInt(1500), MaxSession: 5, ValidDay: new(90), Category: "facial"},
+		{Name: "คอร์สนวดตัว 10 ครั้ง", Price: decimal.NewFromInt(4900), MaxSession: 10, ValidDay: new(365), Category: "body"},
+		// ValidDay ไม่ใส่ = nil = ไม่หมดอายุ
+		{Name: "ทรีตเมนต์หน้า 1 ครั้ง", Price: decimal.NewFromInt(590), MaxSession: 1, Category: "facial"},
+	}
+
+	for _, c := range courses {
+		err := db.Where(models.Course{Name: c.Name}).FirstOrCreate(&c).Error
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SeedStocks สร้างสินค้าตัวอย่าง รันซ้ำได้ (มีชื่อสินค้านี้อยู่แล้วจะข้าม)
+func SeedStocks(db *gorm.DB) error {
+	stocks := []models.Stock{
+		{Name: "ครีมบำรุงหน้า", Price: decimal.NewFromInt(890), IsSellable: true, Category: "premium", UsesPerUnit: 1, MinQty: 5},
+		{Name: "เซรั่มวิตามินซี", Price: decimal.NewFromInt(1290), IsSellable: true, Category: "premium", UsesPerUnit: 1, MinQty: 3},
+		{Name: "ครีมกันแดด", Price: decimal.NewFromInt(450), IsSellable: true, Category: "normal", UsesPerUnit: 1, MinQty: 5},
+		// ของใช้ในร้าน ห้ามขาย 1 กระปุกใช้ได้ 20 ครั้ง
+		{Name: "เจลนวดหน้า (ใช้ในร้าน)", IsSellable: false, Category: "normal", UsesPerUnit: 20, MinQty: 2},
+	}
+
+	for _, s := range stocks {
+		err := db.Where(models.Stock{Name: s.Name}).FirstOrCreate(&s).Error
 		if err != nil {
 			return err
 		}

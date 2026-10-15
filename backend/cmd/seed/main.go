@@ -60,6 +60,16 @@ func main() {
 	}
 	log.Println("✅ Seeded users")
 
+	if err := database.SeedCourses(db); err != nil {
+		log.Fatalf("Failed to seed courses: %v", err)
+	}
+	log.Println("✅ Seeded courses")
+
+	if err := database.SeedStocks(db); err != nil {
+		log.Fatalf("Failed to seed stocks: %v", err)
+	}
+	log.Println("✅ Seeded stocks")
+
 	if err := seedExamples(db); err != nil {
 		log.Fatalf("Failed to seed examples: %v", err)
 	}
