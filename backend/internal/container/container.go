@@ -4,7 +4,6 @@ package container
 
 import (
 	"backend/config"
-	"backend/internal/example"
 
 	"gorm.io/gorm"
 )
@@ -13,18 +12,12 @@ type Container struct {
 	DB *gorm.DB
 
 	// Handlers
-	ExampleHandler *example.Handler
+	// TODO: Add handlers here
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
-	// Initialize Example Module
-	exampleRepository := example.NewRepository(db)
-	exampleService := example.NewService(exampleRepository)
-	exampleHandler := example.NewHandler(exampleService)
-
 	return &Container{
-		DB:             db,
-		ExampleHandler: exampleHandler,
+		DB: db,
 	}
 }
 

@@ -7,9 +7,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// allModels = ทุกตารางที่ต้องสร้าง/ลบ: 21 ตารางของร้าน + Example (ตัวอย่างที่ internal/example และ cmd/seed ยังใช้อยู่)
+// allModels = ทุกตารางที่ต้องสร้าง/ลบ: 21 ตารางของร้าน
 func allModels() []any {
-	return append(models.All(), &Example{})
+	return models.All()
 }
 
 func RunMigration(db *gorm.DB) error {

@@ -6,8 +6,6 @@ import (
 
 	"backend/config"
 	"backend/database"
-
-	"gorm.io/gorm"
 )
 
 func main() {
@@ -70,36 +68,5 @@ func main() {
 	}
 	log.Println("✅ Seeded stocks")
 
-	if err := seedExamples(db); err != nil {
-		log.Fatalf("Failed to seed examples: %v", err)
-	}
-
 	log.Println("✅ Seeding completed successfully!")
-}
-
-func seedExamples(db *gorm.DB) error {
-	examples := []database.Example{
-		{Message: "Welcome to The ZINs Beauty and Spa"},
-		{Message: "Book your appointment today"},
-		{Message: "We offer premium spa services"},
-		{Message: "Relax and rejuvenate with us"},
-		{Message: "Professional beauty treatments"},
-		{Message: "Your wellness is our priority"},
-		{Message: "Experience luxury spa services"},
-		{Message: "Expert beauticians at your service"},
-		{Message: "Transform your beauty routine"},
-		{Message: "Indulge in our signature treatments"},
-	}
-
-	log.Println("Seeding examples...")
-
-	for _, example := range examples {
-		if err := db.Create(&example).Error; err != nil {
-			log.Printf("Warning: Failed to create example '%s': %v", example.Message, err)
-			continue
-		}
-	}
-
-	log.Printf("✅ Seeded %d examples", len(examples))
-	return nil
 }

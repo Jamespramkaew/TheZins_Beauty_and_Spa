@@ -131,10 +131,9 @@ func setupRoute(app *fiber.App, c *container.Container) {
 
 
 	// API Routes
-	api := app.Group("/api")
+	//api := app.Group("/api")
 
-	// Register Example Routes
-	c.ExampleHandler.RegisterRoutes(api)
+	// TODO: Register module routes here
 
 
 
