@@ -55,6 +55,11 @@ func main() {
 	}
 	log.Println("✅ Seeded branches")
 
+	if err := database.SeedUsers(db); err != nil {
+		log.Fatalf("Failed to seed users: %v", err)
+	}
+	log.Println("✅ Seeded users")
+
 	if err := seedExamples(db); err != nil {
 		log.Fatalf("Failed to seed examples: %v", err)
 	}
