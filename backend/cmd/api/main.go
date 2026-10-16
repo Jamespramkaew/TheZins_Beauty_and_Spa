@@ -11,6 +11,7 @@ import (
 	"backend/config"
 	"backend/database"
 	"backend/internal/container"
+	"backend/internal/currentuser"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -72,6 +73,13 @@ func main() {
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
 		AllowCredentials: true,
 	}))
+
+	// ผู้ใช้ปลอมแทน login (ลบออกตอนเชื่อม JWT ของจริง)
+	// เปิดเฉพาะเมื่อตั้ง MOCK_AUTH=true เอง ถ้าไม่ได้ตั้ง = ปิด
+	if os.Getenv("MOCK_AUTH") == "true" {
+		app.Use("/api", currentuser.MockMiddleware(db))
+		log.Println("⚠️  MOCK_AUTH=true: using mock user (header X-Mock-User) instead of login")
+	}
 
 	// Routes
 	setupRoute(app, c)
