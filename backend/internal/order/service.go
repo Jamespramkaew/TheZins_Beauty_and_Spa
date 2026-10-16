@@ -46,6 +46,7 @@ type Service interface {
 	Create(ctx context.Context, user *currentuser.CurrentUser, req CreateOrder) (*OrderDetail, error)
 	List(ctx context.Context, user *currentuser.CurrentUser, q ListOrdersQuery) ([]OrderRow, error)
 	GetByID(ctx context.Context, user *currentuser.CurrentUser, id string) (*OrderDetail, error)
+	AddPayment(ctx context.Context, user *currentuser.CurrentUser, orderID string, req CreatePayment) (*OrderDetail, error)
 }
 
 type service struct {
@@ -187,18 +188,12 @@ func (s *service) Create(ctx context.Context, user *currentuser.CurrentUser, req
 	payments := make([]models.Payment, 0, len(req.Payments))
 	paid := decimal.Zero
 	for i, p := range req.Payments {
-		if p.Method != "cash" && p.Method != "transfer" && p.Method != "card" {
-			return nil, invalid("payments[%d]: method must be cash, transfer or card", i)
+		payment, err := newPayment(fmt.Sprintf("payments[%d]", i), p)
+		if err != nil {
+			return nil, err
 		}
-		if !isMoney(p.Amount) || !p.Amount.IsPositive() {
-			return nil, invalid("payments[%d]: amount must be more than 0 with at most 2 decimals", i)
-		}
-		ref := strings.TrimSpace(p.Reference)
-		if utf8.RuneCountInString(ref) > 100 {
-			return nil, invalid("payments[%d]: reference must be at most 100 characters", i)
-		}
-		paid = paid.Add(p.Amount)
-		payments = append(payments, models.Payment{Method: p.Method, Amount: p.Amount, Reference: ref})
+		paid = paid.Add(payment.Amount)
+		payments = append(payments, payment)
 	}
 	if paid.GreaterThan(total) {
 		return nil, invalid("total payments %s exceed order total %s", paid.StringFixed(2), total.StringFixed(2))
@@ -291,6 +286,27 @@ func (s *service) GetByID(ctx context.Context, user *currentuser.CurrentUser, id
 	return buildDetail(*order, items, payments), nil
 }
 
+// AddPayment บันทึกการจ่ายเพิ่มให้บิล (สาขาเจ้าของบิล หรือ admin) แล้วส่งบิลที่อัปเดตแล้วกลับ
+// การจ่ายที่บันทึกแล้วแก้หรือลบไม่ได้ (ไม่มี API ให้แก้)
+func (s *service) AddPayment(ctx context.Context, user *currentuser.CurrentUser, orderID string, req CreatePayment) (*OrderDetail, error) {
+	// ใช้ GetByID เช็คสิทธิ์: บิลไม่มีจริงหรือเป็นของสาขาอื่น → 404, admin ผ่านทุกบิล
+	if _, err := s.GetByID(ctx, user, orderID); err != nil {
+		return nil, err
+	}
+
+	payment, err := newPayment("payment", req)
+	if err != nil {
+		return nil, err
+	}
+
+	// เช็คยอดค้างจ่ายและบันทึกใน transaction เดียวภายใต้การล็อกบิล (ดู repository.AddPayment)
+	if err := s.repository.AddPayment(ctx, orderID, &payment); err != nil {
+		return nil, err
+	}
+
+	return s.GetByID(ctx, user, orderID)
+}
+
 // buildDetail รวมบิลกับรายการและการจ่าย แล้วคำนวณยอดและสถานะ
 func buildDetail(order models.Order, items []models.OrderItem, payments []models.Payment) *OrderDetail {
 	total := decimal.Zero
@@ -322,6 +338,22 @@ func statusOf(total, paid decimal.Decimal) string {
 		return "partial"
 	}
 	return "unpaid"
+}
+
+// newPayment ตรวจข้อมูลการจ่าย 1 รายการ แล้วสร้าง models.Payment
+// label ใช้นำหน้าข้อความ error เช่น "payments[0]" หรือ "payment"
+func newPayment(label string, p CreatePayment) (models.Payment, error) {
+	if p.Method != "cash" && p.Method != "transfer" && p.Method != "card" {
+		return models.Payment{}, invalid("%s: method must be cash, transfer or card", label)
+	}
+	if !isMoney(p.Amount) || !p.Amount.IsPositive() {
+		return models.Payment{}, invalid("%s: amount must be more than 0 with at most 2 decimals", label)
+	}
+	ref := strings.TrimSpace(p.Reference)
+	if utf8.RuneCountInString(ref) > 100 {
+		return models.Payment{}, invalid("%s: reference must be at most 100 characters", label)
+	}
+	return models.Payment{Method: p.Method, Amount: p.Amount, Reference: ref}, nil
 }
 
 // dateOnly ตัดเวลาออก เหลือแค่วันที่ (ตามปฏิทินของ t) เก็บเป็นเที่ยงคืน UTC

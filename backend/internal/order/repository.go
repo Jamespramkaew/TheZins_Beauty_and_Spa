@@ -22,6 +22,7 @@ type Repository interface {
 	Create(ctx context.Context, yymm string, order *models.Order, items []models.OrderItem, payments []models.Payment) error
 	List(ctx context.Context, f ListFilter) ([]OrderRow, error)
 	GetByID(ctx context.Context, id string) (*models.Order, []models.OrderItem, []models.Payment, error)
+	AddPayment(ctx context.Context, orderID string, payment *models.Payment) error
 }
 
 type repository struct {
@@ -216,4 +217,35 @@ func (r *repository) GetByID(ctx context.Context, id string) (*models.Order, []m
 	}
 
 	return &order, items, payments, nil
+}
+
+// AddPayment บันทึกการจ่ายเพิ่ม 1 รายการ โดยยอดจ่ายรวมต้องไม่เกินยอดบิล
+// ล็อกแถวบิลก่อน (SELECT ... FOR UPDATE) ถ้ามีคนบันทึกการจ่ายบิลเดียวกันพร้อมกัน
+// อีกคนต้องรอ แล้วจะเห็นยอดที่จ่ายไปแล้วล่าสุด จึงจ่ายรวมเกินยอดบิลไม่ได้
+func (r *repository) AddPayment(ctx context.Context, orderID string, payment *models.Payment) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var order models.Order
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", orderID).Error; err != nil {
+			return err
+		}
+
+		var total, paid decimal.Decimal
+		if err := tx.Model(&models.OrderItem{}).Where("order_id = ?", orderID).
+			Select("COALESCE(SUM(qty * unit_price - discount), 0)").Scan(&total).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.Payment{}).Where("order_id = ?", orderID).
+			Select("COALESCE(SUM(amount), 0)").Scan(&paid).Error; err != nil {
+			return err
+		}
+
+		// เช็คตรงนี้ (ใต้การล็อก) ไม่ใช่ใน service เพราะต้องเป็นยอดล่าสุด ณ ตอนบันทึก
+		outstanding := total.Sub(paid)
+		if payment.Amount.GreaterThan(outstanding) {
+			return invalid("amount %s exceeds outstanding %s", payment.Amount.StringFixed(2), outstanding.StringFixed(2))
+		}
+
+		payment.OrderID = orderID
+		return tx.Create(payment).Error
+	})
 }
