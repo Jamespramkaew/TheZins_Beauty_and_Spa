@@ -13,13 +13,18 @@ import (
 	"backend/internal/models"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // error ที่ handler ใช้เลือก HTTP status
 var (
-	ErrInvalidInput = errors.New("invalid input")                       // 400
-	ErrForbidden    = errors.New("only branch users can create orders") // 403
+	ErrInvalidInput = errors.New("invalid input")   // 400
+	ErrForbidden    = errors.New("forbidden")       // 403
+	ErrNotFound     = errors.New("order not found") // 404
 )
+
+// listLimit = จำนวนบิลสูงสุดต่อการเรียก GET /api/orders (V1 ยังไม่มี pagination)
+const listLimit = 100
 
 // bangkok = เวลาไทย (UTC+7 ไม่มีเวลาออมแสง) ใช้หา "วันนี้" และเดือนในเลขบิล
 var bangkok = time.FixedZone("Asia/Bangkok", 7*60*60)
@@ -39,6 +44,8 @@ type OrderDetail struct {
 
 type Service interface {
 	Create(ctx context.Context, user *currentuser.CurrentUser, req CreateOrder) (*OrderDetail, error)
+	List(ctx context.Context, user *currentuser.CurrentUser, q ListOrdersQuery) ([]OrderRow, error)
+	GetByID(ctx context.Context, user *currentuser.CurrentUser, id string) (*OrderDetail, error)
 }
 
 type service struct {
@@ -52,7 +59,7 @@ func NewService(repository Repository) Service {
 func (s *service) Create(ctx context.Context, user *currentuser.CurrentUser, req CreateOrder) (*OrderDetail, error) {
 	// 1) ใครออกบิล: ต้องเป็นบัญชีสาขา branch มาจากผู้ใช้ ไม่ได้มาจาก body
 	if user.Role != "branch" || user.BranchID == nil {
-		return nil, ErrForbidden
+		return nil, fmt.Errorf("%w: only branch users can create orders", ErrForbidden)
 	}
 
 	now := time.Now().In(bangkok)
@@ -211,6 +218,79 @@ func (s *service) Create(ctx context.Context, user *currentuser.CurrentUser, req
 	return buildDetail(order, items, payments), nil
 }
 
+func (s *service) List(ctx context.Context, user *currentuser.CurrentUser, q ListOrdersQuery) ([]OrderRow, error) {
+	f := ListFilter{Limit: listLimit}
+
+	// สาขาเห็นแค่บิลของตัวเอง admin เห็นทุกสาขา
+	if user.Role != "admin" {
+		if user.BranchID == nil {
+			return nil, ErrForbidden
+		}
+		f.BranchID = user.BranchID
+	}
+
+	if q.CustomerID != "" {
+		if !uuidPattern.MatchString(q.CustomerID) {
+			return nil, invalid("customer_id must be a UUID")
+		}
+		f.CustomerID = &q.CustomerID
+	}
+	if q.From != "" {
+		d, err := time.Parse(time.DateOnly, q.From)
+		if err != nil {
+			return nil, invalid("from must be YYYY-MM-DD")
+		}
+		f.From = &d
+	}
+	if q.To != "" {
+		d, err := time.Parse(time.DateOnly, q.To)
+		if err != nil {
+			return nil, invalid("to must be YYYY-MM-DD")
+		}
+		f.To = &d
+	}
+	if f.From != nil && f.To != nil && f.From.After(*f.To) {
+		return nil, invalid("from must not be after to")
+	}
+	if q.Status != "" {
+		if q.Status != "paid" && q.Status != "partial" && q.Status != "unpaid" {
+			return nil, invalid("status must be paid, partial or unpaid")
+		}
+		f.Status = &q.Status
+	}
+
+	rows, err := s.repository.List(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		rows[i].Outstanding = rows[i].Total.Sub(rows[i].Paid)
+		rows[i].Status = statusOf(rows[i].Total, rows[i].Paid)
+	}
+	return rows, nil
+}
+
+func (s *service) GetByID(ctx context.Context, user *currentuser.CurrentUser, id string) (*OrderDetail, error) {
+	if !uuidPattern.MatchString(id) {
+		return nil, ErrNotFound
+	}
+
+	order, items, payments, err := s.repository.GetByID(ctx, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// บิลของสาขาอื่น ตอบเหมือนไม่มีบิลนี้ (ไม่บอกว่ามีอยู่จริง)
+	if user.Role != "admin" && (user.BranchID == nil || order.BranchID != *user.BranchID) {
+		return nil, ErrNotFound
+	}
+
+	return buildDetail(*order, items, payments), nil
+}
+
 // buildDetail รวมบิลกับรายการและการจ่าย แล้วคำนวณยอดและสถานะ
 func buildDetail(order models.Order, items []models.OrderItem, payments []models.Payment) *OrderDetail {
 	total := decimal.Zero
@@ -222,13 +302,6 @@ func buildDetail(order models.Order, items []models.OrderItem, payments []models
 		paid = paid.Add(p.Amount)
 	}
 
-	status := "unpaid"
-	if paid.GreaterThanOrEqual(total) {
-		status = "paid"
-	} else if paid.IsPositive() {
-		status = "partial"
-	}
-
 	return &OrderDetail{
 		Order:       order,
 		Items:       items,
@@ -236,8 +309,19 @@ func buildDetail(order models.Order, items []models.OrderItem, payments []models
 		Total:       total,
 		Paid:        paid,
 		Outstanding: total.Sub(paid),
-		Status:      status,
+		Status:      statusOf(total, paid),
 	}
+}
+
+// statusOf สถานะการจ่ายของบิล (เงื่อนไขต้องตรงกับการกรอง status ใน repository.List)
+func statusOf(total, paid decimal.Decimal) string {
+	if paid.GreaterThanOrEqual(total) {
+		return "paid"
+	}
+	if paid.IsPositive() {
+		return "partial"
+	}
+	return "unpaid"
 }
 
 // dateOnly ตัดเวลาออก เหลือแค่วันที่ (ตามปฏิทินของ t) เก็บเป็นเที่ยงคืน UTC
