@@ -22,6 +22,7 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Post("/orders", h.Create)
 	router.Get("/orders", h.List)
 	router.Get("/orders/:id", h.GetByID)
+	router.Post("/orders/:id/payments", h.AddPayment)
 }
 
 // Create POST /api/orders
@@ -80,6 +81,27 @@ func (h *Handler) GetByID(c fiber.Ctx) error {
 	}
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessResponse("Order retrieved successfully", order))
+}
+
+// AddPayment POST /api/orders/:id/payments
+func (h *Handler) AddPayment(c fiber.Ctx) error {
+	user, ok := currentuser.FromCtx(c)
+	if !ok {
+		return sendUnauthorized(c)
+	}
+
+	var req CreatePayment
+	if err := c.Bind().Body(&req); err != nil {
+		return _package.SendJSON(c, fiber.StatusBadRequest,
+			_package.ErrorResponse("Invalid request body", "VALIDATION_ERROR", err.Error()))
+	}
+
+	order, err := h.service.AddPayment(c.Context(), user, c.Params("id"), req)
+	if err != nil {
+		return sendError(c, err)
+	}
+	return _package.SendJSON(c, fiber.StatusCreated,
+		_package.SuccessResponse("Payment recorded successfully", order))
 }
 
 // sendUnauthorized ตอบ 401 เมื่อไม่มีผู้ใช้ (ยังไม่ login)
