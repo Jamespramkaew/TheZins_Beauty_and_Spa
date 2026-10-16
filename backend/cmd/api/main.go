@@ -17,6 +17,8 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/session"
+	"github.com/gofiber/fiber/v3/extractors"
 )
 
 ///////////////////////////////////////////////////////////////////
@@ -80,6 +82,18 @@ func main() {
 		app.Use("/api", currentuser.MockMiddleware(db))
 		log.Println("⚠️  MOCK_AUTH=true: using mock user (header X-Mock-User) instead of login")
 	}
+	app.Use(session.New(session.Config{
+		Storage: nil,
+		CookieHTTPOnly: true,
+		CookieSecure: cfg.IsProduction(),
+		CookieSameSite: "Lax",
+		
+		IdleTimeout: 60 * time.Minute,
+		AbsoluteTimeout: 24 * time.Hour,
+
+		Extractor: extractors.FromCookie("the_zins_session"),
+	}))
+
 
 	// Routes
 	setupRoute(app, c)
