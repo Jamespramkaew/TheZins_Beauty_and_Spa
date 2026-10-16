@@ -16,6 +16,8 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/session"
+	"github.com/gofiber/fiber/v3/extractors"
 )
 
 ///////////////////////////////////////////////////////////////////
@@ -73,6 +75,18 @@ func main() {
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
 		AllowCredentials: true,
+	}))
+
+	app.Use(session.New(session.Config{
+		Storage: nil,
+		CookieHTTPOnly: true,
+		CookieSecure: cfg.IsProduction(),
+		CookieSameSite: "Lax",
+		
+		IdleTimeout: 60 * time.Minute,
+		AbsoluteTimeout: 24 * time.Hour,
+
+		Extractor: extractors.FromCookie("the_zins_session"),
 	}))
 
 
