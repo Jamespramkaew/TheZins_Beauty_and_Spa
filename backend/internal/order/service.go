@@ -13,13 +13,18 @@ import (
 	"backend/internal/models"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // error ที่ handler ใช้เลือก HTTP status
 var (
-	ErrInvalidInput = errors.New("invalid input")                       // 400
-	ErrForbidden    = errors.New("only branch users can create orders") // 403
+	ErrInvalidInput = errors.New("invalid input")   // 400
+	ErrForbidden    = errors.New("forbidden")       // 403
+	ErrNotFound     = errors.New("order not found") // 404
 )
+
+// listLimit = จำนวนบิลสูงสุดต่อการเรียก GET /api/orders (V1 ยังไม่มี pagination)
+const listLimit = 100
 
 // bangkok = เวลาไทย (UTC+7 ไม่มีเวลาออมแสง) ใช้หา "วันนี้" และเดือนในเลขบิล
 var bangkok = time.FixedZone("Asia/Bangkok", 7*60*60)
@@ -39,6 +44,9 @@ type OrderDetail struct {
 
 type Service interface {
 	Create(ctx context.Context, user *currentuser.CurrentUser, req CreateOrder) (*OrderDetail, error)
+	List(ctx context.Context, user *currentuser.CurrentUser, q ListOrdersQuery) ([]OrderRow, error)
+	GetByID(ctx context.Context, user *currentuser.CurrentUser, id string) (*OrderDetail, error)
+	AddPayment(ctx context.Context, user *currentuser.CurrentUser, orderID string, req CreatePayment) (*OrderDetail, error)
 }
 
 type service struct {
@@ -52,7 +60,7 @@ func NewService(repository Repository) Service {
 func (s *service) Create(ctx context.Context, user *currentuser.CurrentUser, req CreateOrder) (*OrderDetail, error) {
 	// 1) ใครออกบิล: ต้องเป็นบัญชีสาขา branch มาจากผู้ใช้ ไม่ได้มาจาก body
 	if user.Role != "branch" || user.BranchID == nil {
-		return nil, ErrForbidden
+		return nil, fmt.Errorf("%w: only branch users can create orders", ErrForbidden)
 	}
 
 	now := time.Now().In(bangkok)
@@ -180,18 +188,12 @@ func (s *service) Create(ctx context.Context, user *currentuser.CurrentUser, req
 	payments := make([]models.Payment, 0, len(req.Payments))
 	paid := decimal.Zero
 	for i, p := range req.Payments {
-		if p.Method != "cash" && p.Method != "transfer" && p.Method != "card" {
-			return nil, invalid("payments[%d]: method must be cash, transfer or card", i)
+		payment, err := newPayment(fmt.Sprintf("payments[%d]", i), p)
+		if err != nil {
+			return nil, err
 		}
-		if !isMoney(p.Amount) || !p.Amount.IsPositive() {
-			return nil, invalid("payments[%d]: amount must be more than 0 with at most 2 decimals", i)
-		}
-		ref := strings.TrimSpace(p.Reference)
-		if utf8.RuneCountInString(ref) > 100 {
-			return nil, invalid("payments[%d]: reference must be at most 100 characters", i)
-		}
-		paid = paid.Add(p.Amount)
-		payments = append(payments, models.Payment{Method: p.Method, Amount: p.Amount, Reference: ref})
+		paid = paid.Add(payment.Amount)
+		payments = append(payments, payment)
 	}
 	if paid.GreaterThan(total) {
 		return nil, invalid("total payments %s exceed order total %s", paid.StringFixed(2), total.StringFixed(2))
@@ -211,6 +213,100 @@ func (s *service) Create(ctx context.Context, user *currentuser.CurrentUser, req
 	return buildDetail(order, items, payments), nil
 }
 
+func (s *service) List(ctx context.Context, user *currentuser.CurrentUser, q ListOrdersQuery) ([]OrderRow, error) {
+	f := ListFilter{Limit: listLimit}
+
+	// สาขาเห็นแค่บิลของตัวเอง admin เห็นทุกสาขา
+	if user.Role != "admin" {
+		if user.BranchID == nil {
+			return nil, ErrForbidden
+		}
+		f.BranchID = user.BranchID
+	}
+
+	if q.CustomerID != "" {
+		if !uuidPattern.MatchString(q.CustomerID) {
+			return nil, invalid("customer_id must be a UUID")
+		}
+		f.CustomerID = &q.CustomerID
+	}
+	if q.From != "" {
+		d, err := time.Parse(time.DateOnly, q.From)
+		if err != nil {
+			return nil, invalid("from must be YYYY-MM-DD")
+		}
+		f.From = &d
+	}
+	if q.To != "" {
+		d, err := time.Parse(time.DateOnly, q.To)
+		if err != nil {
+			return nil, invalid("to must be YYYY-MM-DD")
+		}
+		f.To = &d
+	}
+	if f.From != nil && f.To != nil && f.From.After(*f.To) {
+		return nil, invalid("from must not be after to")
+	}
+	if q.Status != "" {
+		if q.Status != "paid" && q.Status != "partial" && q.Status != "unpaid" {
+			return nil, invalid("status must be paid, partial or unpaid")
+		}
+		f.Status = &q.Status
+	}
+
+	rows, err := s.repository.List(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		rows[i].Outstanding = rows[i].Total.Sub(rows[i].Paid)
+		rows[i].Status = statusOf(rows[i].Total, rows[i].Paid)
+	}
+	return rows, nil
+}
+
+func (s *service) GetByID(ctx context.Context, user *currentuser.CurrentUser, id string) (*OrderDetail, error) {
+	if !uuidPattern.MatchString(id) {
+		return nil, ErrNotFound
+	}
+
+	order, items, payments, err := s.repository.GetByID(ctx, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// บิลของสาขาอื่น ตอบเหมือนไม่มีบิลนี้ (ไม่บอกว่ามีอยู่จริง)
+	if user.Role != "admin" && (user.BranchID == nil || order.BranchID != *user.BranchID) {
+		return nil, ErrNotFound
+	}
+
+	return buildDetail(*order, items, payments), nil
+}
+
+// AddPayment บันทึกการจ่ายเพิ่มให้บิล (สาขาเจ้าของบิล หรือ admin) แล้วส่งบิลที่อัปเดตแล้วกลับ
+// การจ่ายที่บันทึกแล้วแก้หรือลบไม่ได้ (ไม่มี API ให้แก้)
+func (s *service) AddPayment(ctx context.Context, user *currentuser.CurrentUser, orderID string, req CreatePayment) (*OrderDetail, error) {
+	// ใช้ GetByID เช็คสิทธิ์: บิลไม่มีจริงหรือเป็นของสาขาอื่น → 404, admin ผ่านทุกบิล
+	if _, err := s.GetByID(ctx, user, orderID); err != nil {
+		return nil, err
+	}
+
+	payment, err := newPayment("payment", req)
+	if err != nil {
+		return nil, err
+	}
+
+	// เช็คยอดค้างจ่ายและบันทึกใน transaction เดียวภายใต้การล็อกบิล (ดู repository.AddPayment)
+	if err := s.repository.AddPayment(ctx, orderID, &payment); err != nil {
+		return nil, err
+	}
+
+	return s.GetByID(ctx, user, orderID)
+}
+
 // buildDetail รวมบิลกับรายการและการจ่าย แล้วคำนวณยอดและสถานะ
 func buildDetail(order models.Order, items []models.OrderItem, payments []models.Payment) *OrderDetail {
 	total := decimal.Zero
@@ -222,13 +318,6 @@ func buildDetail(order models.Order, items []models.OrderItem, payments []models
 		paid = paid.Add(p.Amount)
 	}
 
-	status := "unpaid"
-	if paid.GreaterThanOrEqual(total) {
-		status = "paid"
-	} else if paid.IsPositive() {
-		status = "partial"
-	}
-
 	return &OrderDetail{
 		Order:       order,
 		Items:       items,
@@ -236,8 +325,35 @@ func buildDetail(order models.Order, items []models.OrderItem, payments []models
 		Total:       total,
 		Paid:        paid,
 		Outstanding: total.Sub(paid),
-		Status:      status,
+		Status:      statusOf(total, paid),
 	}
+}
+
+// statusOf สถานะการจ่ายของบิล (เงื่อนไขต้องตรงกับการกรอง status ใน repository.List)
+func statusOf(total, paid decimal.Decimal) string {
+	if paid.GreaterThanOrEqual(total) {
+		return "paid"
+	}
+	if paid.IsPositive() {
+		return "partial"
+	}
+	return "unpaid"
+}
+
+// newPayment ตรวจข้อมูลการจ่าย 1 รายการ แล้วสร้าง models.Payment
+// label ใช้นำหน้าข้อความ error เช่น "payments[0]" หรือ "payment"
+func newPayment(label string, p CreatePayment) (models.Payment, error) {
+	if p.Method != "cash" && p.Method != "transfer" && p.Method != "card" {
+		return models.Payment{}, invalid("%s: method must be cash, transfer or card", label)
+	}
+	if !isMoney(p.Amount) || !p.Amount.IsPositive() {
+		return models.Payment{}, invalid("%s: amount must be more than 0 with at most 2 decimals", label)
+	}
+	ref := strings.TrimSpace(p.Reference)
+	if utf8.RuneCountInString(ref) > 100 {
+		return models.Payment{}, invalid("%s: reference must be at most 100 characters", label)
+	}
+	return models.Payment{Method: p.Method, Amount: p.Amount, Reference: ref}, nil
 }
 
 // dateOnly ตัดเวลาออก เหลือแค่วันที่ (ตามปฏิทินของ t) เก็บเป็นเที่ยงคืน UTC
