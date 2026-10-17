@@ -7,6 +7,16 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
+// Code = ค่า type ใน error response ทั้งระบบใช้ชุดนี้ชุดเดียว (หน้าเว็บใช้เลือกข้อความที่จะแสดง)
+const (
+	CodeValidation   = "VALIDATION_ERROR" // 400 ข้อมูลที่ส่งมาผิด
+	CodeUnauthorized = "UNAUTHORIZED"     // 401 ยังไม่ login หรือ login ไม่ผ่าน
+	CodeForbidden    = "FORBIDDEN"        // 403 login แล้วแต่ไม่มีสิทธิ์
+	CodeNotFound     = "NOT_FOUND"        // 404 ไม่พบข้อมูล หรือไม่มี route นี้
+	CodeConflict     = "CONFLICT"         // 409 ข้อมูลซ้ำ
+	CodeInternal     = "INTERNAL_ERROR"   // 500 server หรือ DB มีปัญหา
+)
+
 type AppError struct {
 	Message string // "Invalid credentials"
 	Code    string // "UNAUTHORIZED"
@@ -38,21 +48,21 @@ func SendError(c fiber.Ctx, err error, module string) error {
 	// Error อื่นๆ (database error, unknown error)
 	log.Printf("[%s] %v", module, err)
 	return SendJSON(c, fiber.StatusInternalServerError,
-		ErrorResponse("Something went wrong", "INTERNAL_ERROR", ""))
+		ErrorResponse("Something went wrong", CodeInternal, ""))
 }
 
 // GetStatusFromCode แปลง error code เป็น HTTP status code
 func GetStatusFromCode(code string) int {
 	switch code {
-	case "UNAUTHORIZED":
+	case CodeUnauthorized:
 		return fiber.StatusUnauthorized // 401
-	case "NOT_FOUND":
+	case CodeNotFound:
 		return fiber.StatusNotFound // 404
-	case "VALIDATION_ERROR":
+	case CodeValidation:
 		return fiber.StatusBadRequest // 400
-	case "CONFLICT":
+	case CodeConflict:
 		return fiber.StatusConflict // 409
-	case "FORBIDDEN":
+	case CodeForbidden:
 		return fiber.StatusForbidden // 403
 	default:
 		return fiber.StatusInternalServerError // 500
@@ -62,5 +72,5 @@ func GetStatusFromCode(code string) int {
 // SendBadBody ตอบ 400 เมื่อ body ไม่ใช่ JSON หรือชนิดข้อมูลไม่ตรง
 func SendBadBody(c fiber.Ctx, err error) error {
 	return SendJSON(c, fiber.StatusBadRequest,
-		ErrorResponse("Invalid request body", "VALIDATION_ERROR", err.Error()))
+		ErrorResponse("Invalid request body", CodeValidation, err.Error()))
 }
