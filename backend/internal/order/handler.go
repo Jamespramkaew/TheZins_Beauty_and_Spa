@@ -8,7 +8,7 @@ import (
 )
 
 // errLoginRequired ตอบ 401 เมื่อไม่มีผู้ใช้ (ยังไม่ login)
-var errLoginRequired = _package.NewAppError("Login required", "UNAUTHORIZED", "")
+var errLoginRequired = _package.NewAppError("Login required", _package.CodeUnauthorized, "")
 
 type Handler struct {
 	service Service
@@ -55,7 +55,7 @@ func (h *Handler) List(c fiber.Ctx) error {
 
 	var q ListOrdersQuery
 	if err := c.Bind().Query(&q); err != nil {
-		return _package.SendError(c, _package.NewAppError("Invalid query", "VALIDATION_ERROR", err.Error()), "order")
+		return _package.SendError(c, _package.NewAppError("Invalid query", _package.CodeValidation, err.Error()), "order")
 	}
 
 	orders, err := h.service.List(c.Context(), user, q)

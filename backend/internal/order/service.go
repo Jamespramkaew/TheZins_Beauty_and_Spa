@@ -19,9 +19,9 @@ import (
 
 // error ที่ส่งกลับให้ client (_package.SendError แปลง Code เป็น HTTP status)
 var (
-	ErrForbidden  = _package.NewAppError("Not allowed", "FORBIDDEN", "")                                    // 403
-	ErrBranchOnly = _package.NewAppError("Not allowed", "FORBIDDEN", "only branch users can create orders") // 403
-	ErrNotFound   = _package.NewAppError("Order not found", "NOT_FOUND", "")                                // 404
+	ErrForbidden  = _package.NewAppError("Not allowed", _package.CodeForbidden, "")                                    // 403
+	ErrBranchOnly = _package.NewAppError("Not allowed", _package.CodeForbidden, "only branch users can create orders") // 403
+	ErrNotFound   = _package.NewAppError("Order not found", _package.CodeNotFound, "")                                 // 404
 )
 
 // listLimit = จำนวนบิลสูงสุดต่อการเรียก GET /api/orders (V1 ยังไม่มี pagination)
@@ -371,5 +371,5 @@ func isMoney(d decimal.Decimal) bool {
 
 // invalid สร้าง error 400 พร้อมรายละเอียดว่าข้อมูลส่วนไหนผิด
 func invalid(format string, args ...any) error {
-	return _package.NewAppError("Invalid order data", "VALIDATION_ERROR", fmt.Sprintf(format, args...))
+	return _package.NewAppError("Invalid order data", _package.CodeValidation, fmt.Sprintf(format, args...))
 }

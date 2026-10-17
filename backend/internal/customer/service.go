@@ -17,8 +17,8 @@ import (
 
 // error ที่ส่งกลับให้ client (_package.SendError แปลง Code เป็น HTTP status)
 var (
-	ErrNotFound    = _package.NewAppError("Customer not found", "NOT_FOUND", "")                          // 404
-	ErrDuplicateHN = _package.NewAppError("HN number already exists", "CONFLICT", "hn_no already exists") // 409
+	ErrNotFound    = _package.NewAppError("Customer not found", _package.CodeNotFound, "")                           // 404
+	ErrDuplicateHN = _package.NewAppError("HN number already exists", _package.CodeConflict, "hn_no already exists") // 409
 )
 
 // searchLimit = จำนวนผลค้นหาสูงสุดต่อครั้ง (V1 ยังไม่มี pagination)
@@ -211,5 +211,5 @@ func parseBDay(value *string) (*time.Time, error) {
 
 // invalid สร้าง error 400 พร้อมรายละเอียดว่าข้อมูลช่องไหนผิด
 func invalid(format string, args ...any) error {
-	return _package.NewAppError("Invalid customer data", "VALIDATION_ERROR", fmt.Sprintf(format, args...))
+	return _package.NewAppError("Invalid customer data", _package.CodeValidation, fmt.Sprintf(format, args...))
 }
