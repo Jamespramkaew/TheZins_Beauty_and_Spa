@@ -69,6 +69,36 @@ func GetStatusFromCode(code string) int {
 	}
 }
 
+// FiberErrorHandler ใช้กับ fiber.Config.ErrorHandler
+// error ที่ไม่ได้ผ่าน SendError (เช่น body ใหญ่เกิน 413, panic) ตอบเป็น ErrorResponse เหมือนกันทั้งระบบ
+func FiberErrorHandler(c fiber.Ctx, err error) error {
+	var fe *fiber.Error
+	if errors.As(err, &fe) {
+		return SendJSON(c, fe.Code, ErrorResponse(fe.Message, codeFromStatus(fe.Code), ""))
+	}
+	log.Printf("[fiber] %v", err)
+	return SendJSON(c, fiber.StatusInternalServerError,
+		ErrorResponse("Something went wrong", CodeInternal, ""))
+}
+
+// codeFromStatus แปลง HTTP status กลับเป็น Code (ใช้กับ error ของ Fiber ที่มีแค่ status)
+func codeFromStatus(status int) string {
+	switch status {
+	case fiber.StatusUnauthorized:
+		return CodeUnauthorized
+	case fiber.StatusForbidden:
+		return CodeForbidden
+	case fiber.StatusNotFound:
+		return CodeNotFound
+	case fiber.StatusConflict:
+		return CodeConflict
+	}
+	if status >= 500 {
+		return CodeInternal
+	}
+	return CodeValidation
+}
+
 // SendBadBody ตอบ 400 เมื่อ body ไม่ใช่ JSON หรือชนิดข้อมูลไม่ตรง
 func SendBadBody(c fiber.Ctx, err error) error {
 	return SendJSON(c, fiber.StatusBadRequest,

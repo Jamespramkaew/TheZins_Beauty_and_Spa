@@ -12,6 +12,7 @@ import (
 	"backend/database"
 	"backend/internal/container"
 	"backend/internal/currentuser"
+	"backend/package"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -59,6 +60,7 @@ func main() {
 	app := fiber.New(fiber.Config{
 		AppName:      "The ZINs Beauty and Spa",
 		ServerHeader: "Fiber",
+		ErrorHandler: _package.FiberErrorHandler, // error ของ Fiber (413, panic, ...) ตอบเป็น ErrorResponse
 	})
 
 	// Middleware
@@ -161,10 +163,8 @@ func setupRoute(app *fiber.App, c *container.Container) {
 
 	// 404 Handler
 	app.Use(func(c fiber.Ctx) error {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Route not found",
-			"path":  c.Path(),
-		})
+		return _package.SendJSON(c, fiber.StatusNotFound,
+			_package.ErrorResponse("Route not found", _package.CodeNotFound, c.Method()+" "+c.Path()))
 	})
 
 }
