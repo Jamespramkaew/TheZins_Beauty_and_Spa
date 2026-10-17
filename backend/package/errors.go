@@ -1,7 +1,9 @@
 package _package
 
 import (
+	"errors"
 	"log"
+
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -25,8 +27,9 @@ func NewAppError(message, code, detail string) *AppError {
 
 // SendError จัดการ error และส่ง HTTP response (ใช้ร่วมกันทั้งระบบ)
 func SendError(c fiber.Ctx, err error, module string) error {
-	// ถ้าเป็น AppError
-	if appErr, ok := err.(*AppError); ok {
+	// ถ้าเป็น AppError (errors.As หาเจอแม้ error จะถูกห่อด้วย fmt.Errorf("%w", ...))
+	var appErr *AppError
+	if errors.As(err, &appErr) {
 		status := GetStatusFromCode(appErr.Code)
 		return SendJSON(c, status,
 			ErrorResponse(appErr.Message, appErr.Code, appErr.Detail))
