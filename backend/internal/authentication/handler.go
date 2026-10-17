@@ -3,8 +3,8 @@ package authentication
 import (
 	"errors"
 
-	_package "backend/package"
 	"backend/internal/middleware"
+	_package "backend/package"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/session"
@@ -34,7 +34,7 @@ func (h *Handler) Login(c fiber.Ctx) error {
 	}
 
 	// เรียก service ทำ business logic
-	user, err := h.service.Login(c.Context(), req.Email, req.Password)
+	user, err := h.service.Login(c.Context(), req.Username, req.Password)
 	if err != nil {
 		return _package.SendError(c, err, "authentication")
 	}

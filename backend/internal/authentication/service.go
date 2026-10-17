@@ -2,20 +2,21 @@ package authentication
 
 import (
 	"context"
-	_package "backend/package"
+	"errors"
+	"fmt"
+
 	"backend/internal/models"
+	_package "backend/package"
+
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
+
 var (
 	ErrInvalidCredentials = _package.NewAppError(
 		"Invalid credentials",
-		"UNAUTHORIZED",
+		_package.CodeUnauthorized,
 		"Username or password is incorrect",
-	)
-	ErrUserNotFound = _package.NewAppError(
-		"User not found",
-		"NOT_FOUND",
-		"Username is invalid",
 	)
 )
 
@@ -31,17 +32,19 @@ func NewService(repository Repository) Service {
 	return &service{repository: repository}
 }
 
-
 func (s *service) Login(ctx context.Context, username string, password string) (*models.User, error) {
-	
 	user, err := s.repository.GetByUsername(ctx, username)
 	if err != nil {
-		return nil, ErrUserNotFound
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidCredentials
+		}
+
+		return nil, fmt.Errorf("get user by username: %w", err)
 	}
+
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
 	return user, nil
 }
-
