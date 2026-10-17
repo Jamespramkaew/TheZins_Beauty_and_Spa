@@ -21,8 +21,9 @@ func NewHandler(service Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
-	router.Post("/login", middleware.ReqEmptyCheck, h.Login)
-	router.Post("/logout", h.Logout)
+	auth := router.Group("/auth")
+	auth.Post("/login", middleware.ReqEmptyCheck, h.Login)
+	auth.Post("/logout", h.Logout)
 }
 
 // Login POST /api/auth/login
@@ -33,13 +34,11 @@ func (h *Handler) Login(c fiber.Ctx) error {
 		return _package.SendBadBody(c, err)
 	}
 
-	// เรียก service ทำ business logic
 	user, err := h.service.Login(c.Context(), req.Username, req.Password)
 	if err != nil {
 		return _package.SendError(c, err, "authentication")
 	}
 
-	// ดึง session middleware จาก context (ไม่มี error, session จะถูกบันทึกอัตโนมัติท้าย request)
 	sess := session.FromContext(c)
 	if sess == nil {
 		return _package.SendError(c, errors.New("session not found in context"), "authentication")
@@ -66,10 +65,19 @@ func (h *Handler) Logout(c fiber.Ctx) error {
 		return _package.SendError(c, errors.New("session not found in context"), "authentication")
 	}
 
-	// ลบ session
 	if err := sess.Destroy(); err != nil {
 		return _package.SendError(c, err, "authentication")
 	}
+
+	c.Cookie(&fiber.Cookie{
+		Name:     "the_zins_session",
+		Value:    "",
+		MaxAge:   -1,
+		Path:     "/",
+		HTTPOnly: true,
+		Secure:   c.Protocol() == "https",
+		SameSite: "Lax",
+	})
 
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessResponse("Logout successfully", nil))
