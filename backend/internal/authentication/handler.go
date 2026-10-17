@@ -49,6 +49,10 @@ func (h *Handler) Login(c fiber.Ctx) error {
 	sess.Set("username", user.Username)
 	sess.Set("role", user.Role)
 
+	if user.BranchID != nil {
+		sess.Set("branchId", *user.BranchID)
+	}
+
 	// ส่ง response สำเร็จ
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessResponse("Login successfully", fiber.Map{
