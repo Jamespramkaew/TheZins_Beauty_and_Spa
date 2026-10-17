@@ -10,15 +10,15 @@ import (
 	"unicode/utf8"
 
 	"backend/internal/models"
+	"backend/package"
 
 	"gorm.io/gorm"
 )
 
-// error ที่ handler ใช้เลือก HTTP status
+// error ที่ส่งกลับให้ client (_package.SendError แปลง Code เป็น HTTP status)
 var (
-	ErrNotFound     = errors.New("customer not found")   // 404
-	ErrDuplicateHN  = errors.New("hn_no already exists") // 409
-	ErrInvalidInput = errors.New("invalid input")        // 400
+	ErrNotFound    = _package.NewAppError("Customer not found", "NOT_FOUND", "")                          // 404
+	ErrDuplicateHN = _package.NewAppError("HN number already exists", "CONFLICT", "hn_no already exists") // 409
 )
 
 // searchLimit = จำนวนผลค้นหาสูงสุดต่อครั้ง (V1 ยังไม่มี pagination)
@@ -140,7 +140,7 @@ func (s *service) Update(ctx context.Context, id string, req UpdateCustomer) (*m
 	}
 
 	if len(fields) == 0 {
-		return nil, fmt.Errorf("%w: no fields to update", ErrInvalidInput)
+		return nil, invalid("no fields to update")
 	}
 
 	if err := s.repository.Update(ctx, id, fields); err != nil {
@@ -157,10 +157,10 @@ func (s *service) Update(ctx context.Context, id string, req UpdateCustomer) (*m
 // checkText ตรวจว่าต้องมีค่าไหม และยาวไม่เกิน maxLen ตัวอักษร
 func checkText(field, value string, required bool, maxLen int) error {
 	if required && value == "" {
-		return fmt.Errorf("%w: %s is required", ErrInvalidInput, field)
+		return invalid("%s is required", field)
 	}
 	if utf8.RuneCountInString(value) > maxLen {
-		return fmt.Errorf("%w: %s must be at most %d characters", ErrInvalidInput, field, maxLen)
+		return invalid("%s must be at most %d characters", field, maxLen)
 	}
 	return nil
 }
@@ -188,7 +188,7 @@ func parseCitizenID(value *string) (*string, error) {
 		return nil, nil
 	}
 	if !citizenIDPattern.MatchString(v) {
-		return nil, fmt.Errorf("%w: citizen_id must be 13 digits", ErrInvalidInput)
+		return nil, invalid("citizen_id must be 13 digits")
 	}
 	return &v, nil
 }
@@ -204,7 +204,12 @@ func parseBDay(value *string) (*time.Time, error) {
 	}
 	t, err := time.Parse(time.DateOnly, v)
 	if err != nil {
-		return nil, fmt.Errorf("%w: b_day must be YYYY-MM-DD", ErrInvalidInput)
+		return nil, invalid("b_day must be YYYY-MM-DD")
 	}
 	return &t, nil
+}
+
+// invalid สร้าง error 400 พร้อมรายละเอียดว่าข้อมูลช่องไหนผิด
+func invalid(format string, args ...any) error {
+	return _package.NewAppError("Invalid customer data", "VALIDATION_ERROR", fmt.Sprintf(format, args...))
 }

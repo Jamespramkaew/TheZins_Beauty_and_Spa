@@ -11,16 +11,17 @@ import (
 
 	"backend/internal/currentuser"
 	"backend/internal/models"
+	"backend/package"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
-// error ที่ handler ใช้เลือก HTTP status
+// error ที่ส่งกลับให้ client (_package.SendError แปลง Code เป็น HTTP status)
 var (
-	ErrInvalidInput = errors.New("invalid input")   // 400
-	ErrForbidden    = errors.New("forbidden")       // 403
-	ErrNotFound     = errors.New("order not found") // 404
+	ErrForbidden  = _package.NewAppError("Not allowed", "FORBIDDEN", "")                                    // 403
+	ErrBranchOnly = _package.NewAppError("Not allowed", "FORBIDDEN", "only branch users can create orders") // 403
+	ErrNotFound   = _package.NewAppError("Order not found", "NOT_FOUND", "")                                // 404
 )
 
 // listLimit = จำนวนบิลสูงสุดต่อการเรียก GET /api/orders (V1 ยังไม่มี pagination)
@@ -60,7 +61,7 @@ func NewService(repository Repository) Service {
 func (s *service) Create(ctx context.Context, user *currentuser.CurrentUser, req CreateOrder) (*OrderDetail, error) {
 	// 1) ใครออกบิล: ต้องเป็นบัญชีสาขา branch มาจากผู้ใช้ ไม่ได้มาจาก body
 	if user.Role != "branch" || user.BranchID == nil {
-		return nil, fmt.Errorf("%w: only branch users can create orders", ErrForbidden)
+		return nil, ErrBranchOnly
 	}
 
 	now := time.Now().In(bangkok)
@@ -368,6 +369,7 @@ func isMoney(d decimal.Decimal) bool {
 	return d.Equal(d.Round(2))
 }
 
+// invalid สร้าง error 400 พร้อมรายละเอียดว่าข้อมูลส่วนไหนผิด
 func invalid(format string, args ...any) error {
-	return fmt.Errorf("%w: "+format, append([]any{ErrInvalidInput}, args...)...)
+	return _package.NewAppError("Invalid order data", "VALIDATION_ERROR", fmt.Sprintf(format, args...))
 }
