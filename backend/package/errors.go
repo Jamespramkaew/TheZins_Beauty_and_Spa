@@ -1,8 +1,12 @@
 package _package
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"reflect"
+	"strings"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -102,5 +106,47 @@ func codeFromStatus(status int) string {
 // SendBadBody ตอบ 400 เมื่อ body ไม่ใช่ JSON หรือชนิดข้อมูลไม่ตรง
 func SendBadBody(c fiber.Ctx, err error) error {
 	return SendJSON(c, fiber.StatusBadRequest,
-		ErrorResponse("Invalid request body", CodeValidation, err.Error()))
+		ErrorResponse("Invalid request body", CodeValidation, bindErrorDetail(err)))
+}
+
+// bindErrorDetail แปลง error จาก c.Bind().Body เป็นข้อความที่คนอ่านเข้าใจ ไม่โผล่ชื่อ struct ของ Go
+func bindErrorDetail(err error) string {
+	// ชนิดข้อมูลผิด เช่น {"hn_no": 123} → "hn_no must be a string"
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		return fmt.Sprintf("%s must be %s", typeErr.Field, jsonTypeName(typeErr.Type))
+	}
+	// JSON พัง เช่น {"hn_no":
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return "body must be valid JSON"
+	}
+	// ไม่ได้ส่ง Content-Type: application/json
+	if errors.Is(err, fiber.ErrUnprocessableEntity) {
+		return "Content-Type must be application/json"
+	}
+	// อื่นๆ เช่น ค่าเงินที่แปลงเป็นตัวเลขไม่ได้ ("abc")
+	return "invalid value: " + strings.TrimPrefix(err.Error(), "bind from body: ")
+}
+
+// jsonTypeName ชื่อชนิดข้อมูลแบบ JSON ของ type ใน Go (ใช้ในข้อความ error)
+func jsonTypeName(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "true or false"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return "a number"
+	case reflect.Slice, reflect.Array:
+		return "an array"
+	case reflect.Map, reflect.Struct:
+		return "an object"
+	case reflect.Pointer:
+		return jsonTypeName(t.Elem())
+	default:
+		return "a valid value"
+	}
 }
