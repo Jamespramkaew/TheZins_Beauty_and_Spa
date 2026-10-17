@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"backend/internal/models"
 
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -18,10 +20,35 @@ type Repository interface {
 	FindCourses(ctx context.Context, ids []string) (map[string]models.Course, error)
 	FindStocks(ctx context.Context, ids []string) (map[string]models.Stock, error)
 	Create(ctx context.Context, yymm string, order *models.Order, items []models.OrderItem, payments []models.Payment) error
+	List(ctx context.Context, f ListFilter) ([]OrderRow, error)
+	GetByID(ctx context.Context, id string) (*models.Order, []models.OrderItem, []models.Payment, error)
+	AddPayment(ctx context.Context, orderID string, payment *models.Payment) error
 }
 
 type repository struct {
 	db *gorm.DB
+}
+
+// ListFilter เงื่อนไขค้นหาบิล ช่องที่เป็น nil = ไม่กรองข้อนั้น
+type ListFilter struct {
+	BranchID   *string    // nil = ทุกสาขา (admin)
+	CustomerID *string    // บิลของลูกค้าคนนี้
+	From       *time.Time // order_date ตั้งแต่วันนี้ (รวมวันนั้น)
+	To         *time.Time // order_date ถึงวันนี้ (รวมวันนั้น)
+	Status     *string    // paid / partial / unpaid
+	Limit      int
+}
+
+// OrderRow 1 แถวในรายการบิล: ข้อมูลบิล + รหัสสาขา + ลูกค้า + ยอดรวม/ยอดจ่ายที่รวมมาจาก SQL
+type OrderRow struct {
+	models.Order `gorm:"embedded"`
+	BranchCode   string          `json:"branch_code"`
+	CustomerHnNo string          `json:"customer_hn_no"`
+	CustomerName string          `json:"customer_name"`
+	Total        decimal.Decimal `json:"total"`
+	Paid         decimal.Decimal `json:"paid"`
+	Outstanding  decimal.Decimal `gorm:"-" json:"outstanding"` // service เติมให้
+	Status       string          `gorm:"-" json:"status"`      // service เติมให้
 }
 
 func NewRepository(db *gorm.DB) Repository {
@@ -119,5 +146,106 @@ func (r *repository) Create(ctx context.Context, yymm string, order *models.Orde
 		}
 
 		return nil // return nil = commit
+	})
+}
+
+// List รายการบิลตามเงื่อนไข เรียงจากวันขายล่าสุด
+// ยอดรวมและยอดจ่ายรวมด้วย SQL (SUM) จึงกรองตามสถานะได้ในคำสั่งเดียว
+func (r *repository) List(ctx context.Context, f ListFilter) ([]OrderRow, error) {
+	itemTotals := r.db.Model(&models.OrderItem{}).
+		Select("order_id, SUM(qty * unit_price - discount) AS total").Group("order_id")
+	paidTotals := r.db.Model(&models.Payment{}).
+		Select("order_id, SUM(amount) AS paid").Group("order_id")
+
+	q := r.db.WithContext(ctx).Table("orders AS o").
+		Select("o.*, b.code AS branch_code, c.hn_no AS customer_hn_no, "+
+			"TRIM(CONCAT(c.fname, ' ', c.lname)) AS customer_name, t.total, COALESCE(p.paid, 0) AS paid").
+		Joins("JOIN branches AS b ON b.id = o.branch_id").
+		Joins("JOIN customers AS c ON c.id = o.customer_id").
+		Joins("JOIN (?) AS t ON t.order_id = o.id", itemTotals).
+		Joins("LEFT JOIN (?) AS p ON p.order_id = o.id", paidTotals)
+
+	if f.BranchID != nil {
+		q = q.Where("o.branch_id = ?", *f.BranchID)
+	}
+	if f.CustomerID != nil {
+		q = q.Where("o.customer_id = ?", *f.CustomerID)
+	}
+	if f.From != nil {
+		q = q.Where("o.order_date >= ?", *f.From)
+	}
+	if f.To != nil {
+		q = q.Where("o.order_date <= ?", *f.To)
+	}
+	if f.Status != nil {
+		// เงื่อนไขต้องตรงกับ statusOf ใน service
+		switch *f.Status {
+		case "paid":
+			q = q.Where("COALESCE(p.paid, 0) >= t.total")
+		case "partial":
+			q = q.Where("COALESCE(p.paid, 0) > 0 AND COALESCE(p.paid, 0) < t.total")
+		case "unpaid":
+			q = q.Where("COALESCE(p.paid, 0) = 0 AND t.total > 0")
+		}
+	}
+
+	rows := []OrderRow{}
+	err := q.Order("o.order_date DESC, o.order_no DESC").Limit(f.Limit).Scan(&rows).Error
+	return rows, err
+}
+
+// GetByID บิล 1 ใบ พร้อมลูกค้า สาขา รายการ (เรียงตาม line_no พร้อมชื่อคอร์ส/สินค้า) และการจ่าย (เรียงตามเวลา)
+func (r *repository) GetByID(ctx context.Context, id string) (*models.Order, []models.OrderItem, []models.Payment, error) {
+	db := r.db.WithContext(ctx)
+
+	var order models.Order
+	if err := db.Preload("Customer").Preload("Branch").First(&order, "id = ?", id).Error; err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Unscoped = ดึงคอร์ส/สินค้าที่ถูกลบแบบ soft delete ไปแล้วด้วย บิลเก่าจะได้ยังเห็นชื่อ
+	unscoped := func(tx *gorm.DB) *gorm.DB { return tx.Unscoped() }
+	items := []models.OrderItem{}
+	if err := db.Preload("Course", unscoped).Preload("Stock", unscoped).
+		Where("order_id = ?", id).Order("line_no").Find(&items).Error; err != nil {
+		return nil, nil, nil, err
+	}
+
+	payments := []models.Payment{}
+	if err := db.Where("order_id = ?", id).Order("paid_at").Find(&payments).Error; err != nil {
+		return nil, nil, nil, err
+	}
+
+	return &order, items, payments, nil
+}
+
+// AddPayment บันทึกการจ่ายเพิ่ม 1 รายการ โดยยอดจ่ายรวมต้องไม่เกินยอดบิล
+// ล็อกแถวบิลก่อน (SELECT ... FOR UPDATE) ถ้ามีคนบันทึกการจ่ายบิลเดียวกันพร้อมกัน
+// อีกคนต้องรอ แล้วจะเห็นยอดที่จ่ายไปแล้วล่าสุด จึงจ่ายรวมเกินยอดบิลไม่ได้
+func (r *repository) AddPayment(ctx context.Context, orderID string, payment *models.Payment) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var order models.Order
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", orderID).Error; err != nil {
+			return err
+		}
+
+		var total, paid decimal.Decimal
+		if err := tx.Model(&models.OrderItem{}).Where("order_id = ?", orderID).
+			Select("COALESCE(SUM(qty * unit_price - discount), 0)").Scan(&total).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.Payment{}).Where("order_id = ?", orderID).
+			Select("COALESCE(SUM(amount), 0)").Scan(&paid).Error; err != nil {
+			return err
+		}
+
+		// เช็คตรงนี้ (ใต้การล็อก) ไม่ใช่ใน service เพราะต้องเป็นยอดล่าสุด ณ ตอนบันทึก
+		outstanding := total.Sub(paid)
+		if payment.Amount.GreaterThan(outstanding) {
+			return invalid("amount %s exceeds outstanding %s", payment.Amount.StringFixed(2), outstanding.StringFixed(2))
+		}
+
+		payment.OrderID = orderID
+		return tx.Create(payment).Error
 	})
 }
