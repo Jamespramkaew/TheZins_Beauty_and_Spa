@@ -27,11 +27,3 @@ type CreatePayment struct {
 	Amount    decimal.Decimal `json:"amount"`    // ต้องมากกว่า 0
 	Reference string          `json:"reference"` // เลขสลิปหรือเลขท้ายบัตร ไม่ส่งก็ได้
 }
-
-// ListOrdersQuery ค่าจาก query string ของ GET /api/orders (ไม่ส่งช่องไหน = ไม่กรองช่องนั้น)
-type ListOrdersQuery struct {
-	CustomerID string `query:"customer_id"`
-	From       string `query:"from"`   // YYYY-MM-DD
-	To         string `query:"to"`     // YYYY-MM-DD
-	Status     string `query:"status"` // paid / partial / unpaid
-}
