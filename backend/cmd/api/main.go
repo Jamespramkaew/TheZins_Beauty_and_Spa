@@ -150,6 +150,9 @@ func setupRoute(app *fiber.App, c *container.Container) {
 	// API Routes
 	api := app.Group("/api")
 
+	// Register Authentication Routes
+	c.AuthHandler.RegisterRoutes(api)
+
 	// Register Customer Routes
 	c.CustomerHandler.RegisterRoutes(api)
 

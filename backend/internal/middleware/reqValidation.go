@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"encoding/json"
-	_package "server/package"
+	_package "backend/package"
 
 	"github.com/gofiber/fiber/v3"
 )
