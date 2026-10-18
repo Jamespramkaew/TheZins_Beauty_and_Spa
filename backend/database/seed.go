@@ -86,11 +86,13 @@ func SeedCourses(db *gorm.DB) error {
 // SeedStocks สร้างสินค้าตัวอย่าง รันซ้ำได้ (มีชื่อสินค้านี้อยู่แล้วจะข้าม)
 func SeedStocks(db *gorm.DB) error {
 	stocks := []models.Stock{
-		{Name: "ครีมบำรุงหน้า", Price: decimal.NewFromInt(890), IsSellable: true, Category: "premium", UsesPerUnit: 1, MinQty: 5},
-		{Name: "เซรั่มวิตามินซี", Price: decimal.NewFromInt(1290), IsSellable: true, Category: "premium", UsesPerUnit: 1, MinQty: 3},
-		{Name: "ครีมกันแดด", Price: decimal.NewFromInt(450), IsSellable: true, Category: "normal", UsesPerUnit: 1, MinQty: 5},
+		{Name: stockCream, Price: decimal.NewFromInt(890), IsSellable: true, Category: "premium", UsesPerUnit: 1, MinQty: 5},
+		{Name: stockSerum, Price: decimal.NewFromInt(1290), IsSellable: true, Category: "premium", UsesPerUnit: 1, MinQty: 3},
+		{Name: stockSunscreen, Price: decimal.NewFromInt(450), IsSellable: true, Category: "normal", UsesPerUnit: 1, MinQty: 5},
 		// ของใช้ในร้าน ห้ามขาย 1 กระปุกใช้ได้ 20 ครั้ง
-		{Name: "เจลนวดหน้า (ใช้ในร้าน)", IsSellable: false, Category: "normal", UsesPerUnit: 20, MinQty: 2},
+		{Name: stockGel, IsSellable: false, Category: "normal", UsesPerUnit: 20, MinQty: 2},
+		// ของใช้ในร้าน ห้ามขาย 1 กระปุกใช้ได้ 10 ครั้ง
+		{Name: stockMask, IsSellable: false, Category: "normal", UsesPerUnit: 10, MinQty: 2},
 	}
 
 	for _, s := range stocks {

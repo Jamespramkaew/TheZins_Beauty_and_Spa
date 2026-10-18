@@ -95,6 +95,7 @@ func (h *Handler) Logout(c fiber.Ctx) error {
 		_package.SuccessResponse("Logout successfully", nil))
 }
 
+// Change Password PATCH /api/auth/change-password
 func (h *Handler) ChangePassword(c fiber.Ctx) error {
 
 	var req ChangePasswordRequest

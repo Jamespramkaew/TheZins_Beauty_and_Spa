@@ -12,14 +12,14 @@ import (
 	"backend/database"
 	"backend/internal/container"
 	"backend/internal/currentuser"
-	"backend/package"
+	_package "backend/package"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/extractors"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/session"
-	"github.com/gofiber/fiber/v3/extractors"
 )
 
 ///////////////////////////////////////////////////////////////////
@@ -85,17 +85,16 @@ func main() {
 		log.Println("⚠️  MOCK_AUTH=true: using mock user (header X-Mock-User) instead of login")
 	}
 	app.Use(session.New(session.Config{
-		Storage: nil,
+		Storage:        nil,
 		CookieHTTPOnly: true,
-		CookieSecure: cfg.IsProduction(),
+		CookieSecure:   cfg.IsProduction(),
 		CookieSameSite: "Lax",
-		
-		IdleTimeout: 60 * time.Minute,
+
+		IdleTimeout:     60 * time.Minute,
 		AbsoluteTimeout: 24 * time.Hour,
 
 		Extractor: extractors.FromCookie("the_zins_session"),
 	}))
-
 
 	// Routes
 	setupRoute(app, c)
@@ -160,6 +159,9 @@ func setupRoute(app *fiber.App, c *container.Container) {
 
 	// Register Order Routes
 	c.OrderHandler.RegisterRoutes(api)
+
+	// Register Stock Routes
+	c.StockHandler.RegisterRoutes(api)
 
 	// 404 Handler
 	app.Use(func(c fiber.Ctx) error {
