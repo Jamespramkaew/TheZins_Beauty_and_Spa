@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"backend/internal/currentuser"
 	_package "backend/package"
 
 	"github.com/gofiber/fiber/v3"
@@ -29,6 +30,15 @@ func AuthMiddleware(c fiber.Ctx) error {
 	c.Locals("username", currentSession.Get("username"))
 	c.Locals("branchId", currentSession.Get("branchId"))
 	c.Locals("role", currentSession.Get("role"))
+
+	// สร้าง CurrentUser จาก session ให้ handler ที่ใช้ currentuser.FromCtx (order) อ่านได้
+	user := &currentuser.CurrentUser{}
+	user.ID, _ = currentSession.Get("user_id").(string)
+	user.Role, _ = currentSession.Get("role").(string)
+	if branchID, ok := currentSession.Get("branchId").(string); ok {
+		user.BranchID = &branchID // admin ไม่มี branchId → ปล่อยเป็น nil
+	}
+	currentuser.Set(c, user)
 
 	return c.Next()
 }
