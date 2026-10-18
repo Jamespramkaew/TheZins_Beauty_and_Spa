@@ -1,6 +1,7 @@
 package customer
 
 import (
+	"backend/internal/middleware"
 	"backend/package"
 
 	"github.com/gofiber/fiber/v3"
@@ -15,10 +16,11 @@ func NewHandler(service Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
-	router.Get("/customers", h.Search)
-	router.Get("/customers/:id", h.GetByID)
-	router.Post("/customers", h.Create)
-	router.Patch("/customers/:id", h.Update)
+	customers := router.Group("/customers", middleware.AuthMiddleware)
+	customers.Get("", h.Search)
+	customers.Get("/:id", h.GetByID)
+	customers.Post("", h.Create)
+	customers.Patch("/:id", h.Update)
 }
 
 // Search GET /api/customers?q=

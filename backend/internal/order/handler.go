@@ -2,6 +2,7 @@ package order
 
 import (
 	"backend/internal/currentuser"
+	"backend/internal/middleware"
 	"backend/package"
 
 	"github.com/gofiber/fiber/v3"
@@ -19,15 +20,16 @@ func NewHandler(service Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
-	router.Post("/orders", h.Create)
-	router.Get("/orders", h.List)
-	router.Get("/orders/:id", h.GetByID)
-	router.Post("/orders/:id/payments", h.AddPayment)
+	orders := router.Group("/orders", middleware.AuthMiddleware)
+	orders.Post("", h.Create)
+	orders.Get("", h.List)
+	orders.Get("/:id", h.GetByID)
+	orders.Post("/:id/payments", h.AddPayment)
 }
 
 // Create POST /api/orders
 func (h *Handler) Create(c fiber.Ctx) error {
-	// ต้อง login ก่อน (ตอนนี้ผู้ใช้มาจาก mock middleware ภายหลังมาจาก JWT)
+	// ต้อง login ก่อน (AuthMiddleware ตอบ 401 ไปแล้ว ตรงนี้กันพลาดอีกชั้น)
 	user, ok := currentuser.FromCtx(c)
 	if !ok {
 		return _package.SendError(c, errLoginRequired, "order")
