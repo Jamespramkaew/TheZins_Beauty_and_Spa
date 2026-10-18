@@ -24,6 +24,7 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	auth := router.Group("/auth")
 	auth.Post("/login", middleware.ReqEmptyCheck, h.Login)
 	auth.Post("/logout", h.Logout)
+	auth.Patch("/change-password", middleware.AuthMiddleware, middleware.ReqEmptyCheck, h.ChangePassword)
 }
 
 // Login POST /api/auth/login
@@ -32,6 +33,13 @@ func (h *Handler) Login(c fiber.Ctx) error {
 
 	if err := c.Bind().Body(&req); err != nil {
 		return _package.SendBadBody(c, err)
+	}
+
+	if req.Username == "" || req.Password == "" {
+		return _package.SendError(c,
+			_package.NewAppError("Invalid request", _package.CodeValidation, "username and password are required"),
+			"authentication",
+		)
 	}
 
 	user, err := h.service.Login(c.Context(), req.Username, req.Password)
@@ -85,4 +93,30 @@ func (h *Handler) Logout(c fiber.Ctx) error {
 
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessResponse("Logout successfully", nil))
+}
+
+func (h *Handler) ChangePassword(c fiber.Ctx) error {
+
+	var req ChangePasswordRequest
+
+	if err := c.Bind().Body(&req); err != nil {
+		return _package.SendBadBody(c, err)
+	}
+
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		return _package.SendError(c,
+			_package.NewAppError("Invalid request", _package.CodeValidation, "currentPassword and newPassword are required"),
+			"authentication",
+		)
+	}
+
+	username := c.Locals("username").(string)
+
+	if err := h.service.ChangePassword(c.Context(), username, req.CurrentPassword, req.NewPassword); err != nil {
+		return _package.SendError(c, err, "authentication")
+	}
+
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessResponse("Password changed successfully", nil))
+
 }
