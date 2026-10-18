@@ -1,13 +1,15 @@
 package authentication
 
 import (
-	"context"
 	"backend/internal/models"
+	"context"
+
 	"gorm.io/gorm"
 )
 
 type Repository interface {
 	GetByUsername(ctx context.Context, username string) (*models.User, error)
+	UpdatePassword(ctx context.Context, userId string, newHashPassword string) error
 }
 
 type repository struct {
@@ -25,4 +27,10 @@ func (r *repository) GetByUsername(ctx context.Context, username string) (*model
 	}
 
 	return &user, nil
+}
+
+func (r *repository) UpdatePassword(ctx context.Context, username string, newHashPassword string) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("username = ?", username).
+		Update("password", newHashPassword).Error
 }

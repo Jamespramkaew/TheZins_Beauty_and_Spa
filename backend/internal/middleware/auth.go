@@ -25,8 +25,9 @@ func AuthMiddleware(c fiber.Ctx) error {
 		)
 	}
 
-	currentBranch := currentSession.Get("branchId")
-	c.Locals("branchId", currentBranch)
+	c.Locals("userId", currentSession.Get("user_id"))
+	c.Locals("username", currentSession.Get("username"))
+	c.Locals("branchId", currentSession.Get("branchId"))
 
 	return c.Next()
 }
