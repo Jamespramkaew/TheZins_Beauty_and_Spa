@@ -17,7 +17,7 @@ func NewHandler(service Service) *Handler {
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Get("/stock", middleware.AuthMiddleware, h.GetAllStock)
-	router.Get("ก", middleware.AuthMiddleware, h.GetStockContainersByStockID)
+	router.Get("/stock/:id/containers", middleware.AuthMiddleware, h.GetStockContainersByStockID)
 }
 
 // Get All Stock GET /api/stock
