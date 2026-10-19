@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"backend/internal/models"
 	_package "backend/package"
@@ -27,6 +28,7 @@ const (
 	maxPage         = 1_000_000
 	defaultPageSize = 20
 	maxPageSize     = 100
+	maxSearchLen    = 100 // จำนวนตัวอักษรสูงสุดของ ?search=
 )
 
 // id ที่ไม่ใช่ UUID ถ้าส่งไปถึง PostgreSQL จะ error กลายเป็น 500 เลยตรวจก่อน
@@ -35,6 +37,7 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 type Service interface {
 	GetAllStock(ctx context.Context) ([]models.Stock, error)
 	GetStockContainersByStockID(ctx context.Context, userRole string, sessionBranchId string, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error)
+	GetStockQuantities(ctx context.Context, userRole string, sessionBranchId string, q QuantityQuery) ([]StockQuantity, error)
 }
 
 type service struct {
@@ -45,6 +48,7 @@ func NewService(repository Repository) Service {
 	return &service{repository: repository}
 }
 
+// ดึงรายการ Stock ทั้งหมดในระบบ
 func (s *service) GetAllStock(ctx context.Context) ([]models.Stock, error) {
 	return s.repository.GetAllStock(ctx)
 }
@@ -97,6 +101,51 @@ func (s *service) GetStockContainersByStockID(ctx context.Context, userRole stri
 	}
 	return containers, _package.NewPageMeta(page, pageSize, total), nil
 }
+
+// GetStockQuantities คืนสินค้าพร้อมจำนวนคงเหลือ
+// admin: เลือกสาขาด้วย q.BranchID ได้ ไม่ส่งมา = รวมทุกสาขา
+// บัญชีอื่น: ถูกบังคับเป็นสาขาของตัวเองเสมอ
+func (s *service) GetStockQuantities(ctx context.Context, userRole string, sessionBranchId string, q QuantityQuery) ([]StockQuantity, error) {
+	f := QuantityFilter{}
+
+	search := strings.TrimSpace(q.Search)
+	if utf8.RuneCountInString(search) > maxSearchLen {
+		return nil, invalid("search must be at most %d characters", maxSearchLen)
+	}
+	f.Search = search
+
+	category := strings.ToLower(strings.TrimSpace(q.Category))
+	switch category {
+	case "", "premium", "normal":
+		f.Category = category
+	default:
+		return nil, invalid("category must be one of: premium, normal")
+	}
+
+	if raw := strings.TrimSpace(q.LowStock); raw != "" {
+		low, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil, invalid("lowStock must be true or false")
+		}
+		f.LowStock = low
+	}
+
+	if userRole == "admin" {
+		f.BranchID = strings.TrimSpace(q.BranchID)
+		if f.BranchID != "" && !uuidPattern.MatchString(f.BranchID) {
+			return nil, invalid("branchId must be a valid UUID")
+		}
+	} else {
+		if sessionBranchId == "" {
+			return nil, ErrBranchRequired
+		}
+		f.BranchID = sessionBranchId
+	}
+
+	return s.repository.GetStockQuantities(ctx, f)
+}
+
+// Helper Function
 
 func parseBoundedInt(name, raw string, def, max int) (int, error) {
 	raw = strings.TrimSpace(raw)

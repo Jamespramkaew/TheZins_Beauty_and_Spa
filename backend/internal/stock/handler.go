@@ -17,7 +17,30 @@ func NewHandler(service Service) *Handler {
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Get("/stock", middleware.AuthMiddleware, h.GetAllStock)
+	router.Get("/stock/quantities", middleware.AuthMiddleware, h.GetStockQuantities)
 	router.Get("/stock/:id/containers", middleware.AuthMiddleware, h.GetStockContainersByStockID)
+}
+
+// GetStockQuantities GET /api/stock/quantities?branchId=&search=&category=premium|normal&lowStock=true
+// สินค้าแต่ละชนิดพร้อมจำนวนคงเหลือและราคา
+func (h *Handler) GetStockQuantities(c fiber.Ctx) error {
+
+	userRole, _ := c.Locals("role").(string)
+	sessionBranchId, _ := c.Locals("branchId").(string)
+
+	q := QuantityQuery{
+		BranchID: c.Query("branchId"),
+		Search:   c.Query("search"),
+		Category: c.Query("category"),
+		LowStock: c.Query("lowStock"),
+	}
+
+	quantities, err := h.service.GetStockQuantities(c.Context(), userRole, sessionBranchId, q)
+	if err != nil {
+		return _package.SendError(c, err, "stock")
+	}
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessResponse("Stock quantities retrieved successfully", quantities))
 }
 
 // Get All Stock GET /api/stock
@@ -34,7 +57,6 @@ func (h *Handler) GetAllStock(c fiber.Ctx) error {
 // GetStockContainersByStockID GET /api/stock/:id/containers?status=open|closed|all&branchId=&page=1&pageSize=20
 func (h *Handler) GetStockContainersByStockID(c fiber.Ctx) error {
 
-	// ใช้ comma-ok: admin ไม่มี branchId (nil) ถ้า assert ตรงๆ จะ panic
 	userRole, _ := c.Locals("role").(string)
 	sessionBranchId, _ := c.Locals("branchId").(string)
 
