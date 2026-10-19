@@ -9,6 +9,8 @@ import (
 
 	"backend/internal/models"
 	_package "backend/package"
+
+	"github.com/shopspring/decimal"
 )
 
 // error ที่ส่งกลับให้ client (_package.SendError แปลง Code เป็น HTTP status)
@@ -36,6 +38,10 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 type Service interface {
 	GetAllStock(ctx context.Context) ([]models.Stock, error)
 	GetStockContainersByStockID(ctx context.Context, userRole string, sessionBranchId string, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error)
+	AddStock(ctx context.Context, data AddStockRequest) (models.Stock, error)
+	UpdateStockById(ctx context.Context, stockId string, data UpdateStockRequest) (models.Stock, error)
+	DeleteStockById(ctx context.Context, stockId string) error
+	RestoreStockById(ctx context.Context, stockId string) (models.Stock, error)
 }
 
 type service struct {
@@ -100,6 +106,242 @@ func (s *service) GetStockContainersByStockID(ctx context.Context, userRole stri
 	return containers, _package.NewPageMeta(page, pageSize, total), nil
 }
 
+func (s *service) AddStock(ctx context.Context, data AddStockRequest) (models.Stock, error) {
+	var emptyStock models.Stock
+
+	// Validate ชื่อสินค้า
+	stockName := strings.TrimSpace(data.StockName)
+	if stockName == "" {
+		return emptyStock, invalid("stock name is required")
+	}
+	if len(stockName) > 150 {
+		return emptyStock, invalid("stock name must not exceed 150 characters")
+	}
+
+	// Validate Category
+	category := strings.ToLower(strings.TrimSpace(data.Category))
+	if category != "premium" && category != "normal" {
+		return emptyStock, invalid("category must be either 'premium' or 'normal'")
+	}
+
+	// Validate Price
+	if data.Price.IsNegative() {
+		return emptyStock, invalid("price must be greater than or equal to 0")
+	}
+
+	// Validate UsesPerUnit
+	if data.UsesPerUnit < 1 {
+		return emptyStock, invalid("uses per unit must be at least 1")
+	}
+
+	// Validate MinQty
+	if data.MinQty < 0 {
+		return emptyStock, invalid("min quantity must be greater than or equal to 0")
+	}
+
+	// เช็คชื่อซ้ำในระบบ
+	existingStock, err := s.repository.FindStockByName(ctx, stockName)
+	if err != nil {
+		return emptyStock, err
+	}
+
+	if existingStock != nil {
+		// ถ้าไม่มี DeletedAt (ยังไม่ถูกลบ) → ห้ามเพิ่ม
+		if existingStock.DeletedAt.Time.IsZero() {
+			return emptyStock, _package.NewAppError(
+				"Stock name already exists",
+				_package.CodeConflict,
+				fmt.Sprintf("Stock with name '%s' already exists in the system", stockName),
+			)
+		}
+	}
+
+	// ถ้า IsSellable = false → ปรับ Price เป็น 0 อัตโนมัติ
+	price := data.Price
+	if !data.IsSellable {
+		price = decimal.NewFromInt(0)
+	}
+
+	// สร้าง Stock ใหม่
+	newStock := models.Stock{
+		Name:        stockName,
+		Price:       price,
+		IsSellable:  data.IsSellable,
+		Category:    category,
+		UsesPerUnit: data.UsesPerUnit,
+		MinQty:      data.MinQty,
+		IsActive:    true,
+	}
+
+	createdStock, err := s.repository.CreateStock(ctx, newStock)
+	if err != nil {
+		return emptyStock, err
+	}
+
+	return createdStock, nil
+}
+
+// UpdateStockById อัปเดตข้อมูลสินค้า (เฉพาะฟิลด์ที่ส่งมา)
+func (s *service) UpdateStockById(ctx context.Context, stockId string, data UpdateStockRequest) (models.Stock, error) {
+	var emptyStock models.Stock
+
+	// Validate UUID
+	if !uuidPattern.MatchString(stockId) {
+		return emptyStock, invalid("stock id must be a valid UUID")
+	}
+
+	// ดึงข้อมูล Stock เดิมจาก DB
+	existingStock, err := s.repository.FindStockById(ctx, stockId)
+	if err != nil {
+		return emptyStock, err
+	}
+	if existingStock == nil {
+		return emptyStock, _package.NewAppError(
+			"Stock not found",
+			_package.CodeNotFound,
+			fmt.Sprintf("Stock with id '%s' not found", stockId),
+		)
+	}
+
+	// ตรวจสอบและอัปเดตแต่ละฟิลด์ที่ส่งมา
+
+	// 1. StockName
+	if data.StockName != nil {
+		stockName := strings.TrimSpace(*data.StockName)
+		if stockName == "" {
+			return emptyStock, invalid("stock name cannot be empty")
+		}
+		if len(stockName) > 150 {
+			return emptyStock, invalid("stock name must not exceed 150 characters")
+		}
+
+		// เช็คชื่อซ้ำ (ยกเว้นตัวมันเอง)
+		if stockName != existingStock.Name {
+			duplicateStock, err := s.repository.FindStockByName(ctx, stockName)
+			if err != nil {
+				return emptyStock, err
+			}
+			if duplicateStock != nil && duplicateStock.ID != stockId {
+				// ถ้าพบชื่อซ้ำกับ stock อื่น
+				if duplicateStock.DeletedAt.Time.IsZero() {
+					return emptyStock, _package.NewAppError(
+						"Stock name already exists",
+						_package.CodeConflict,
+						fmt.Sprintf("Stock with name '%s' already exists in the system", stockName),
+					)
+				}
+			}
+		}
+
+		existingStock.Name = stockName
+	}
+
+	// 2. Price
+	if data.PriceSet {
+		if data.Price.IsNegative() {
+			return emptyStock, invalid("price must be greater than or equal to 0")
+		}
+		existingStock.Price = data.Price
+	}
+
+	// 3. IsSellable
+	if data.IsSellable != nil {
+		existingStock.IsSellable = *data.IsSellable
+	}
+
+	// 4. Category
+	if data.Category != nil {
+		category := strings.ToLower(strings.TrimSpace(*data.Category))
+		if category != "premium" && category != "normal" {
+			return emptyStock, invalid("category must be either 'premium' or 'normal'")
+		}
+		existingStock.Category = category
+	}
+
+	// 5. UsesPerUnit
+	if data.UsesPerUnit != nil {
+		if *data.UsesPerUnit < 1 {
+			return emptyStock, invalid("uses per unit must be at least 1")
+		}
+		existingStock.UsesPerUnit = *data.UsesPerUnit
+	}
+
+	// 6. MinQty
+	if data.MinQty != nil {
+		if *data.MinQty < 0 {
+			return emptyStock, invalid("min quantity must be greater than or equal to 0")
+		}
+		existingStock.MinQty = *data.MinQty
+	}
+
+	// 7. IsActive
+	if data.IsActive != nil {
+		existingStock.IsActive = *data.IsActive
+	}
+
+	// ตรวจสอบเงื่อนไขสุดท้าย: ถ้า IsSellable = false → Price ต้องเป็น 0 เสมอ
+	// (ทำหลังจากอัปเดตทุกฟิลด์แล้ว เพื่อให้แน่ใจว่าเงื่อนไขนี้มีผลเสมอ)
+	if !existingStock.IsSellable {
+		existingStock.Price = decimal.NewFromInt(0)
+	}
+
+	// บันทึกการเปลี่ยนแปลงลง DB
+	updatedStock, err := s.repository.UpdateStock(ctx, *existingStock)
+	if err != nil {
+		return emptyStock, err
+	}
+
+	return updatedStock, nil
+}
+
+// DeleteStockById ลบสินค้า:
+// - ถ้าไม่มี Relation → Hard Delete (ลบจริง)
+// - ถ้ามี Relation → Soft Delete (เซ็ต DeletedAt)
+func (s *service) DeleteStockById(ctx context.Context, stockId string) error {
+
+	// Validate UUID
+	if !uuidPattern.MatchString(stockId) {
+		return invalid("stock id must be a valid UUID")
+	}
+
+	// ดึงข้อมูล Stock
+	existingStock, err := s.repository.FindStockById(ctx, stockId)
+	if err != nil {
+		return err
+	}
+	if existingStock == nil {
+		return _package.NewAppError(
+			"Stock not found",
+			_package.CodeNotFound,
+			fmt.Sprintf("Stock with id '%s' not found", stockId),
+		)
+	}
+
+	// เช็คว่ามี Relation หรือไม่
+	hasRelation, err := s.repository.CheckStockHasRelation(ctx, stockId)
+	if err != nil {
+		return err
+	}
+
+	if hasRelation {
+		// มี Relation → Soft Delete
+		err = s.repository.SoftDeleteStock(ctx, stockId)
+		if err != nil {
+			return err
+		}
+	} else {
+		// ไม่มี Relation → Hard Delete
+		err = s.repository.HardDeleteStock(ctx, stockId)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Helper Function
+
 func parseBoundedInt(name, raw string, def, max int) (int, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -114,4 +356,57 @@ func parseBoundedInt(name, raw string, def, max int) (int, error) {
 
 func invalid(format string, args ...any) error {
 	return _package.NewAppError("Invalid request", _package.CodeValidation, fmt.Sprintf(format, args...))
+}
+
+// RestoreStockById กู้คืนสินค้าที่ถูก soft delete
+func (s *service) RestoreStockById(ctx context.Context, stockId string) (models.Stock, error) {
+	var emptyStock models.Stock
+
+	// Validate UUID
+	if !uuidPattern.MatchString(stockId) {
+		return emptyStock, invalid("stock id must be a valid UUID")
+	}
+
+	// ดึงข้อมูล Stock (รวมที่ถูก soft delete)
+	existingStock, err := s.repository.FindStockByIdIncludingDeleted(ctx, stockId)
+	if err != nil {
+		return emptyStock, err
+	}
+	if existingStock == nil {
+		return emptyStock, _package.NewAppError(
+			"Stock not found",
+			_package.CodeNotFound,
+			fmt.Sprintf("Stock with id '%s' not found", stockId),
+		)
+	}
+
+	// เช็คว่าถูก soft delete หรือไม่
+	if existingStock.DeletedAt.Time.IsZero() {
+		return emptyStock, _package.NewAppError(
+			"Stock is not deleted",
+			_package.CodeValidation,
+			"Cannot restore stock that is not deleted",
+		)
+	}
+
+	// เช็คว่าชื่อซ้ำกับสินค้าที่ยังใช้งานอยู่หรือไม่
+	duplicateStock, err := s.repository.FindStockByName(ctx, existingStock.Name)
+	if err != nil {
+		return emptyStock, err
+	}
+	if duplicateStock != nil && duplicateStock.DeletedAt.Time.IsZero() {
+		return emptyStock, _package.NewAppError(
+			"Stock name already exists",
+			_package.CodeConflict,
+			fmt.Sprintf("Cannot restore: Stock with name '%s' already exists in the system", existingStock.Name),
+		)
+	}
+
+	// Restore (ลบค่า DeletedAt)
+	restoredStock, err := s.repository.RestoreStock(ctx, stockId)
+	if err != nil {
+		return emptyStock, err
+	}
+
+	return restoredStock, nil
 }

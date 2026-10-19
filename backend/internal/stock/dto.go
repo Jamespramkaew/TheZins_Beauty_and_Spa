@@ -1,5 +1,7 @@
 package stock
 
+import "github.com/shopspring/decimal"
+
 // สถานะของกระปุกที่ใช้กรองใน GET /api/stock/:id/containers?status=
 const (
 	StatusOpen   = "open"   // ยังเปิดอยู่ (closed_at IS NULL)
@@ -14,4 +16,24 @@ type ContainerQuery struct {
 	Status   string // จาก ?status= ว่าง = open
 	Page     string // จาก ?page= ว่าง = 1
 	PageSize string // จาก ?pageSize= ว่าง = 20 (สูงสุด 100)
+}
+
+type AddStockRequest struct {
+	StockName   string          `json:"stockName" validate:"required,max=150"`
+	Price       decimal.Decimal `json:"price" validate:"required,gte=0"`
+	IsSellable  bool            `json:"isSellable"`
+	Category    string          `json:"category" validate:"required,oneof=premium normal"`
+	UsesPerUnit int             `json:"usesPerUnit" validate:"required,gte=1"`
+	MinQty      int             `json:"minQty" validate:"gte=0"`
+}
+
+type UpdateStockRequest struct {
+	StockName   *string         `json:"stockName"`
+	Price       decimal.Decimal `json:"price"` // ไม่ใช้ pointer เพราะ decimal.Decimal unmarshal ไม่ได้
+	PriceSet    bool            `json:"-"`     // flag บอกว่า price ถูกส่งมาหรือไม่
+	IsSellable  *bool           `json:"isSellable"`
+	Category    *string         `json:"category"`
+	UsesPerUnit *int            `json:"usesPerUnit"`
+	MinQty      *int            `json:"minQty"`
+	IsActive    *bool           `json:"isActive"`
 }
