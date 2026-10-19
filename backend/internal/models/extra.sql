@@ -33,5 +33,9 @@ BEGIN
 END $$;
 
 -- stock_logs: ให้คำนวณยอดคงเหลือ SUM(qty_change) จาก index ได้เลยโดยไม่ต้องอ่านตาราง
--- (ผลจากการทดสอบโหลดข้อมูล 5 ปี)
-CREATE INDEX IF NOT EXISTS idx_stock_logs_balance ON stock_logs (branch_id, stock_id) INCLUDE (qty_change);
+-- ลำดับ: stock_id ก่อน branch_id เพราะ stock_id มี selectivity สูงกว่า (50-100 สินค้า vs 3 สาขา)
+-- INCLUDE (qty_change) ทำให้ PostgreSQL ทำ index-only scan ได้ (ไม่ต้องไปหาตารางหลัก)
+CREATE INDEX IF NOT EXISTS idx_stock_logs_balance ON stock_logs (stock_id, branch_id) INCLUDE (qty_change);
+
+-- Index เสริมสำหรับ query ที่ filter เฉพาะ stock_id (admin ดูรวมทุกสาขา)
+CREATE INDEX IF NOT EXISTS idx_stock_logs_stock_qty ON stock_logs (stock_id) INCLUDE (qty_change);
