@@ -68,5 +68,10 @@ func main() {
 	}
 	log.Println("✅ Seeded stocks")
 
+	if err := database.SeedStockInventory(db); err != nil {
+		log.Fatalf("Failed to seed stock inventory: %v", err)
+	}
+	log.Println("✅ Seeded stock inventory (receive logs, containers, open logs)")
+
 	log.Println("✅ Seeding completed successfully!")
 }
