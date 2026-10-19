@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"backend/internal/models"
 	_package "backend/package"
@@ -102,8 +101,48 @@ func (s *service) GetStockContainersByStockID(ctx context.Context, userRole stri
 	return containers, _package.NewPageMeta(page, pageSize, total), nil
 }
 
+// GetStockQuantities คืนสินค้าพร้อมจำนวนคงเหลือ
+// admin: เลือกสาขาด้วย q.BranchID ได้ ไม่ส่งมา = รวมทุกสาขา
+// บัญชีอื่น: ถูกบังคับเป็นสาขาของตัวเองเสมอ
+func (s *service) GetStockQuantities(ctx context.Context, userRole string, sessionBranchId string, q QuantityQuery) ([]StockQuantity, error) {
+	f := QuantityFilter{}
 
-// Helper Function
+	search := strings.TrimSpace(q.Search)
+	if len([]rune(search)) > maxSearchLen {
+		return nil, invalid("search must be at most %d characters", maxSearchLen)
+	}
+	f.Search = search
+
+	category := strings.ToLower(strings.TrimSpace(q.Category))
+	switch category {
+	case "", "premium", "normal":
+		f.Category = category
+	default:
+		return nil, invalid("category must be one of: premium, normal")
+	}
+
+	if raw := strings.TrimSpace(q.LowStock); raw != "" {
+		low, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil, invalid("lowStock must be true or false")
+		}
+		f.LowStock = low
+	}
+
+	if userRole == "admin" {
+		f.BranchID = strings.TrimSpace(q.BranchID)
+		if f.BranchID != "" && !uuidPattern.MatchString(f.BranchID) {
+			return nil, invalid("branchId must be a valid UUID")
+		}
+	} else {
+		if sessionBranchId == "" {
+			return nil, ErrBranchRequired
+		}
+		f.BranchID = sessionBranchId
+	}
+
+	return s.repository.GetStockQuantities(ctx, f)
+}
 
 func parseBoundedInt(name, raw string, def, max int) (int, error) {
 	raw = strings.TrimSpace(raw)
