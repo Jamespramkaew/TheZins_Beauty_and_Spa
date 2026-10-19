@@ -17,30 +17,7 @@ func NewHandler(service Service) *Handler {
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Get("/stock", middleware.AuthMiddleware, h.GetAllStock)
-	router.Get("/stock/quantities", middleware.AuthMiddleware, h.GetStockQuantities)
-	router.Get("/stock/:id/containers", middleware.AuthMiddleware, h.GetStockContainersByStockID)
-}
-
-// GetStockQuantities GET /api/stock/quantities?branchId=&search=&category=premium|normal&lowStock=true
-// สินค้าแต่ละชนิดพร้อมจำนวนคงเหลือและราคา
-func (h *Handler) GetStockQuantities(c fiber.Ctx) error {
-
-	userRole, _ := c.Locals("role").(string)
-	sessionBranchId, _ := c.Locals("branchId").(string)
-
-	q := QuantityQuery{
-		BranchID: c.Query("branchId"),
-		Search:   c.Query("search"),
-		Category: c.Query("category"),
-		LowStock: c.Query("lowStock"),
-	}
-
-	quantities, err := h.service.GetStockQuantities(c.Context(), userRole, sessionBranchId, q)
-	if err != nil {
-		return _package.SendError(c, err, "stock")
-	}
-	return _package.SendJSON(c, fiber.StatusOK,
-		_package.SuccessResponse("Stock quantities retrieved successfully", quantities))
+	router.Get("ก", middleware.AuthMiddleware, h.GetStockContainersByStockID)
 }
 
 // Get All Stock GET /api/stock
