@@ -8,6 +8,7 @@ import (
 	"backend/internal/customer"
 	"backend/internal/order"
 	"backend/internal/stock"
+	stocklog "backend/internal/stock-log"
 
 	"gorm.io/gorm"
 )
@@ -20,6 +21,7 @@ type Container struct {
 	CustomerHandler *customer.Handler
 	OrderHandler    *order.Handler
 	StockHandler    *stock.Handler
+	StockLogHandler *stocklog.Handler
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
@@ -43,12 +45,18 @@ func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
 	stockService := stock.NewService(stockRepository)
 	stockHandler := stock.NewHandler(stockService)
 
+	// Initialize Stock Log Module
+	stockLogRepository := stocklog.NewRepository(db)
+	stockLogService := stocklog.NewService(stockLogRepository)
+	stockLogHandler := stocklog.NewHandler(stockLogService)
+
 	return &Container{
 		DB:              db,
 		AuthHandler:     authHandler,
 		CustomerHandler: customerHandler,
 		OrderHandler:    orderHandler,
 		StockHandler:    stockHandler,
+		StockLogHandler: stockLogHandler,
 	}
 }
 
