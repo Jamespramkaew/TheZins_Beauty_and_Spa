@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"backend/internal/models"
 	_package "backend/package"
 )
 
@@ -50,7 +49,7 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 
 type Service interface {
 	GetAllStockQuantities(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockQuantitiesQuery) ([]StockQuantity, _package.PageMeta, error)
-	GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]models.StockLog, _package.PageMeta, error)
+	GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error)
 }
 
 type service struct {
@@ -143,7 +142,7 @@ func boundedInt(name string, n, def, max int) (int, error) {
 // GetStockLogsByBranchId คืนประวัติ stock_logs ทีละหน้า เรียงใหม่สุดก่อน
 // admin: เลือกสาขาด้วย q.BranchID ได้ ไม่ส่งมา = ทุกสาขา
 // บัญชีอื่น: ถูกบังคับเป็นสาขาของตัวเองเสมอ (ไม่สนค่า q.BranchID กันดูข้ามสาขา)
-func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]models.StockLog, _package.PageMeta, error) {
+func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error) {
 	var noMeta _package.PageMeta
 
 	var branchId string
@@ -228,10 +227,11 @@ func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, s
 	if err != nil {
 		return nil, noMeta, err
 	}
-	if logs == nil {
-		logs = []models.StockLog{} // ตอบ [] ไม่ใช่ null
+	items := make([]StockLogResponse, 0, len(logs)) // ตอบ [] ไม่ใช่ null
+	for _, l := range logs {
+		items = append(items, toStockLogResponse(l))
 	}
-	return logs, _package.NewPageMeta(page, pageSize, total), nil
+	return items, _package.NewPageMeta(page, pageSize, total), nil
 }
 
 // checkOptionalUUID ว่างผ่าน ถ้ามีค่าต้องเป็น UUID

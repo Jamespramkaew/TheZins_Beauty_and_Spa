@@ -1,5 +1,11 @@
 package stocklog
 
+import (
+	"time"
+
+	"backend/internal/models"
+)
+
 // GetAllStockQuantitiesQuery = ค่าจาก query string ของ GET /api/stock-logs/quantities
 type GetAllStockQuantitiesQuery struct {
 	BranchID string `query:"branchId"` // admin เท่านั้น ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง ว่าง (admin) = ทุกสาขา
@@ -38,4 +44,65 @@ type GetAllStockLogsQuery struct {
 	UsageID     string `query:"usageId"`     // log ที่เกิดจากการใช้บริการนี้
 	Page        int    `query:"page"`        // 0 = 1
 	PageSize    int    `query:"pageSize"`    // 0 = 20 สูงสุด 100
+}
+
+// StockLogResponse = แถวประวัติสต็อก 1 แถวใน GET /api/stock-logs (เฉพาะฟิลด์ที่หน้าจอต้องใช้)
+// id ของสินค้า/สาขา/พนักงานอยู่ใน object ข้างในแล้ว จึงไม่ซ้ำที่ระดับบน
+type StockLogResponse struct {
+	ID          string      `json:"id"`
+	LogType     string      `json:"log_type"`
+	QtyChange   int         `json:"qty_change"`
+	Note        *string     `json:"note"`
+	OrderItemID *string     `json:"order_item_id"` // ไม่ null = เกิดจากการขาย
+	UsageID     *string     `json:"usage_id"`      // ไม่ null = เกิดจากการใช้บริการ
+	CreatedAt   time.Time   `json:"created_at"`
+	Stock       StockRef    `json:"stock"`
+	Branch      BranchRef   `json:"branch"`
+	Employee    EmployeeRef `json:"employee"`
+}
+
+type StockRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type BranchRef struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type EmployeeRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
+// toStockLogResponse แปลง model เป็น response
+// ความสัมพันธ์ที่ไม่ได้ preload (nil) จะได้ object ที่มีเฉพาะ id แทนที่จะ panic
+func toStockLogResponse(l models.StockLog) StockLogResponse {
+	r := StockLogResponse{
+		ID:          l.ID,
+		LogType:     l.LogType,
+		QtyChange:   l.QtyChange,
+		Note:        l.Note,
+		OrderItemID: l.OrderItemID,
+		UsageID:     l.UsageID,
+		CreatedAt:   l.CreatedAt,
+		Stock:       StockRef{ID: l.StockID},
+		Branch:      BranchRef{ID: l.BranchID},
+		Employee:    EmployeeRef{ID: l.EmployeeID},
+	}
+	if l.Stock != nil {
+		r.Stock.Name = l.Stock.Name
+	}
+	if l.Branch != nil {
+		r.Branch.Code = l.Branch.Code
+		r.Branch.Name = l.Branch.Name
+	}
+	if l.Employee != nil {
+		r.Employee.Name = l.Employee.Name
+		r.Employee.Role = l.Employee.Role
+	}
+	return r
 }
