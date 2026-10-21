@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"strings"
 
 	"backend/internal/models"
@@ -57,6 +58,40 @@ func SeedUsers(db *gorm.DB) error {
 			BranchID: &b.ID,
 		}
 		err := db.Where(models.User{Username: user.Username}).FirstOrCreate(&user).Error
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedEmployee = พนักงานตัวอย่าง 1 คน (ชื่อต้องไม่ซ้ำกันภายในสาขาเดียวกัน)
+type seedEmployee struct {
+	branch string // รหัสสาขา เช่น "S1"
+	name   string
+	role   string // consult / manager / TP
+}
+
+// สาขาละ 3 คน: manager (รับของเข้า) / TP (เปิดกระปุก) / consult
+var seedEmployees = []seedEmployee{
+	{"S1", "สมศรี ใจดี", "manager"}, {"S1", "วิภา สุขสันต์", "TP"}, {"S1", "นภา รักงาน", "consult"},
+	{"S2", "สมชาย มั่นคง", "manager"}, {"S2", "จินตนา แสนสุข", "TP"}, {"S2", "ปริญญา ดีเลิศ", "consult"},
+	{"S3", "สุดา พึ่งพา", "manager"}, {"S3", "มาลี งามตา", "TP"}, {"S3", "อรทัย ใจงาม", "consult"},
+}
+
+// SeedEmployees สร้างพนักงานตัวอย่าง รันซ้ำได้ (มีชื่อนี้ในสาขานี้อยู่แล้วจะข้าม) ต้องรันหลัง SeedBranches
+func SeedEmployees(db *gorm.DB) error {
+	branchByCode, err := loadBranchesByCode(db)
+	if err != nil {
+		return err
+	}
+	for _, e := range seedEmployees {
+		branch, ok := branchByCode[e.branch]
+		if !ok {
+			return fmt.Errorf("seed employee %q: branch %q not found", e.name, e.branch)
+		}
+		emp := models.Employee{Name: e.name, Role: e.role, BranchID: branch.ID, IsActive: true}
+		err := db.Where(models.Employee{Name: e.name, BranchID: branch.ID}).FirstOrCreate(&emp).Error
 		if err != nil {
 			return err
 		}

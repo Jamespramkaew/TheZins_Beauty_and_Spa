@@ -166,6 +166,7 @@ func (r *repository) GetStockLogs(ctx context.Context, f stockLogFilter) ([]mode
 	err := filtered.
 		Preload("Stock", withDeleted).
 		Preload("Branch").
+		Preload("Employee").
 		Order("created_at DESC, id DESC").
 		Limit(f.PageSize).
 		Offset((f.Page - 1) * f.PageSize).

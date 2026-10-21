@@ -22,6 +22,9 @@ const (
 // receiveDaysAgo = รับของเข้าเมื่อกี่วันก่อน (ต้องเก่ากว่าการเปิดกระปุกทุกใบ)
 const receiveDaysAgo = 30
 
+// seedReceiveNote = note ของแถวรับของเข้าตั้งต้น
+const seedReceiveNote = "รับของเข้าตั้งต้น (seed)"
+
 // seedReceive = รับของเข้า 1 รายการ → stock_logs (receive, +qty)
 type seedReceive struct {
 	branch string // รหัสสาขา เช่น "S1"
@@ -76,8 +79,11 @@ var seedContainers = []seedContainer{
 //   - เปิดกระปุก 1 ใบ = แถวใน stock_containers + stock_logs (open, -1) คู่กันเสมอ
 //   - ปิดเพราะ damaged / expired ไม่สร้าง stock_logs เพิ่ม (ตัดไปแล้วตอนเปิด)
 //
+// ทุกแถวมี employee_id ของพนักงานในสาขาเดียวกับแถวนั้น: รับของเข้า = manager, เปิดกระปุก = TP
+// รับของเข้ามี note อธิบายที่มา เปิดกระปุกไม่มี note
+//
 // ถ้าตาราง stock_logs หรือ stock_containers มีข้อมูลอยู่แล้วจะข้ามทั้งหมด (กันข้อมูลซ้ำ)
-// ต้องการสร้างใหม่ให้รัน seed ด้วย -reset ต้องรันหลัง SeedBranches และ SeedStocks
+// ต้องการสร้างใหม่ให้รัน seed ด้วย -reset ต้องรันหลัง SeedBranches, SeedEmployees และ SeedStocks
 //
 // หมายเหตุ: uses_count ของกระปุกที่ปิดแล้วเป็นค่าสมมติ เพราะระบบนี้ยังไม่ seed service_usages
 // (ปกติค่านี้คำนวณจาก service_usages ในช่วง opened_at ถึง closed_at)
@@ -102,6 +108,10 @@ func SeedStockInventory(db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
+	employeeByBranchRole, err := loadEmployeesByBranchRole(db)
+	if err != nil {
+		return err
+	}
 
 	now := time.Now()
 
@@ -122,12 +132,20 @@ func SeedStockInventory(db *gorm.DB) error {
 				return fmt.Errorf("seed receive: qty must be > 0 (%s / %s)", r.branch, r.stock)
 			}
 
+			emp, err := seedEmployeeFor(employeeByBranchRole, branch.ID, "manager")
+			if err != nil {
+				return fmt.Errorf("seed receive: %w", err)
+			}
+
+			note := seedReceiveNote
 			logs = append(logs, models.StockLog{
-				StockID:   stock.ID,
-				BranchID:  branch.ID,
-				QtyChange: r.qty,
-				LogType:   "receive",
-				CreatedAt: now.AddDate(0, 0, -receiveDaysAgo),
+				StockID:    stock.ID,
+				BranchID:   branch.ID,
+				EmployeeID: emp.ID,
+				QtyChange:  r.qty,
+				LogType:    "receive",
+				Note:       &note,
+				CreatedAt:  now.AddDate(0, 0, -receiveDaysAgo),
 			})
 		}
 
@@ -142,6 +160,11 @@ func SeedStockInventory(db *gorm.DB) error {
 			}
 			if err := validateSeedContainer(s, stock); err != nil {
 				return err
+			}
+
+			emp, err := seedEmployeeFor(employeeByBranchRole, branch.ID, "TP")
+			if err != nil {
+				return fmt.Errorf("seed container: %w", err)
 			}
 
 			openedAt := now.AddDate(0, 0, -s.openedAgo)
@@ -160,11 +183,12 @@ func SeedStockInventory(db *gorm.DB) error {
 
 			// เปิดกระปุก = ตัดสต็อกของที่ยังไม่เปิดออก 1 ชิ้น
 			logs = append(logs, models.StockLog{
-				StockID:   stock.ID,
-				BranchID:  branch.ID,
-				QtyChange: -1,
-				LogType:   "open",
-				CreatedAt: openedAt,
+				StockID:    stock.ID,
+				BranchID:   branch.ID,
+				EmployeeID: emp.ID,
+				QtyChange:  -1,
+				LogType:    "open",
+				CreatedAt:  openedAt,
 			})
 		}
 
@@ -190,6 +214,27 @@ func loadBranchesByCode(db *gorm.DB) (map[string]models.Branch, error) {
 		m[b.Code] = b
 	}
 	return m, nil
+}
+
+// loadEmployeesByBranchRole คืนพนักงานที่ active แยกตาม "branchID|role" (ถ้ามีหลายคนใช้คนแรกตามชื่อ)
+func loadEmployeesByBranchRole(db *gorm.DB) (map[string]models.Employee, error) {
+	var employees []models.Employee
+	if err := db.Where("is_active = ?", true).Order("name DESC").Find(&employees).Error; err != nil {
+		return nil, err
+	}
+	m := make(map[string]models.Employee, len(employees))
+	for _, e := range employees {
+		m[e.BranchID+"|"+e.Role] = e // เรียง DESC เพื่อให้คนแรกตามชื่อเขียนทับเป็นคนสุดท้าย
+	}
+	return m, nil
+}
+
+func seedEmployeeFor(m map[string]models.Employee, branchID, role string) (models.Employee, error) {
+	e, ok := m[branchID+"|"+role]
+	if !ok {
+		return models.Employee{}, fmt.Errorf("no active %q employee in branch %s (run SeedEmployees first)", role, branchID)
+	}
+	return e, nil
 }
 
 func loadStocksByName(db *gorm.DB) (map[string]models.Stock, error) {
@@ -268,6 +313,17 @@ func verifyStockInventory(tx *gorm.DB) error {
 			"'open' log must be -1 and 'receive' log must be positive",
 			`SELECT COUNT(*) FROM stock_logs
 			WHERE (log_type = 'open' AND qty_change <> -1) OR (log_type = 'receive' AND qty_change <= 0)`,
+		},
+		{
+			"every log must be made by an active employee of the same branch",
+			`SELECT COUNT(*) FROM stock_logs l
+				LEFT JOIN employees e ON e.id = l.employee_id
+			WHERE e.id IS NULL OR e.branch_id <> l.branch_id OR e.is_active = false`,
+		},
+		{
+			"adjust and count_diff logs need a note",
+			`SELECT COUNT(*) FROM stock_logs
+			WHERE log_type IN ('adjust', 'count_diff') AND (note IS NULL OR btrim(note) = '')`,
 		},
 	}
 
