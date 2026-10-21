@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"backend/internal/models"
 	_package "backend/package"
@@ -114,7 +115,7 @@ func (s *service) AddStock(ctx context.Context, data AddStockRequest) (models.St
 	if stockName == "" {
 		return emptyStock, invalid("stock name is required")
 	}
-	if len(stockName) > 150 {
+	if utf8.RuneCountInString(stockName) > 150 {
 		return emptyStock, invalid("stock name must not exceed 150 characters")
 	}
 
@@ -211,7 +212,7 @@ func (s *service) UpdateStockById(ctx context.Context, stockId string, data Upda
 		if stockName == "" {
 			return emptyStock, invalid("stock name cannot be empty")
 		}
-		if len(stockName) > 150 {
+		if utf8.RuneCountInString(stockName) > 150 {
 			return emptyStock, invalid("stock name must not exceed 150 characters")
 		}
 
