@@ -130,36 +130,26 @@ func (r *repository) UpdateStock(ctx context.Context, stock models.Stock) (model
 	return stock, nil
 }
 
-// CheckStockHasRelation เช็คว่า Stock มี Relation กับ tables อื่นหรือไม่
-// Relations: CourseItem, StockLog, StockContainer
+// CheckStockHasRelation เช็คว่า Stock ถูกอ้างอิงจากตารางอื่นหรือไม่
+// ต้องครบทุกตารางที่มี FK stock_id ชี้มาที่ stocks ไม่งั้น hard delete จะติด FK แล้วตอบ 500
+// Relations: OrderItem, CourseItem, StockLog, StockContainer
 func (r *repository) CheckStockHasRelation(ctx context.Context, stockId string) (bool, error) {
-	var count int64
-
-	// เช็ค CourseItem
-	err := r.db.WithContext(ctx).Model(&models.CourseItem{}).Where("stock_id = ?", stockId).Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	if count > 0 {
-		return true, nil
+	relatedModels := []any{
+		&models.OrderItem{}, // เคยขายแล้ว (V1 ยังไม่ตัดสต็อกตอนขาย จึงอาจไม่มี stock_logs)
+		&models.CourseItem{},
+		&models.StockLog{},
+		&models.StockContainer{},
 	}
 
-	// เช็ค StockLog
-	err = r.db.WithContext(ctx).Model(&models.StockLog{}).Where("stock_id = ?", stockId).Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	if count > 0 {
-		return true, nil
-	}
-
-	// เช็ค StockContainer
-	err = r.db.WithContext(ctx).Model(&models.StockContainer{}).Where("stock_id = ?", stockId).Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	if count > 0 {
-		return true, nil
+	for _, m := range relatedModels {
+		var count int64
+		err := r.db.WithContext(ctx).Model(m).Where("stock_id = ?", stockId).Count(&count).Error
+		if err != nil {
+			return false, err
+		}
+		if count > 0 {
+			return true, nil
+		}
 	}
 
 	return false, nil
