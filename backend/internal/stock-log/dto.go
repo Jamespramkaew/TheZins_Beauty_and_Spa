@@ -1,7 +1,6 @@
 package stocklog
 
 // GetAllStockQuantitiesQuery = ค่าจาก query string ของ GET /api/stock-logs/quantities
-// bind ด้วย c.Bind().Query(&q) ส่วนการตรวจค่าและกำหนดค่าเริ่มต้นทำใน service
 type GetAllStockQuantitiesQuery struct {
 	BranchID string `query:"branchId"` // admin เท่านั้น ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง ว่าง (admin) = ทุกสาขา
 	Search   string `query:"search"`   // ค้นชื่อสินค้า
@@ -25,4 +24,18 @@ type StockQuantity struct {
 	BranchName  string `json:"branch_name"`
 	Quantity    int    `json:"quantity"`
 	IsLowStock  bool   `json:"is_low_stock"` // quantity <= min_qty
+}
+
+// GetAllStockLogsQuery = ค่าจาก query string ของ GET /api/stock-logs
+type GetAllStockLogsQuery struct {
+	StockID     string `query:"stockId"`     // สินค้าชนิดเดียว
+	BranchID    string `query:"branchId"`    // admin เท่านั้น ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง ว่าง (admin) = ทุกสาขา
+	LogType     string `query:"logType"`     // receive | sale | use | open | damaged | expired | internal | transfer | adjust | count_diff
+	Direction   string `query:"direction"`   // in (qty_change > 0) | out (qty_change < 0) ว่าง = ทั้งหมด
+	From        string `query:"from"`        // YYYY-MM-DD (เวลาไทย) นับตั้งแต่ 00:00 ของวันนั้น
+	To          string `query:"to"`          // YYYY-MM-DD (เวลาไทย) นับถึงสิ้นวันนั้น
+	OrderItemID string `query:"orderItemId"` // log ที่เกิดจากรายการขายนี้
+	UsageID     string `query:"usageId"`     // log ที่เกิดจากการใช้บริการนี้
+	Page        int    `query:"page"`        // 0 = 1
+	PageSize    int    `query:"pageSize"`    // 0 = 20 สูงสุด 100
 }

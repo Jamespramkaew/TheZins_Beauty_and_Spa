@@ -43,3 +43,6 @@ CREATE INDEX IF NOT EXISTS idx_stock_logs_stock_qty ON stock_logs (stock_id) INC
 -- stocks: ชื่อสินค้าต้องไม่ซ้ำ (เฉพาะที่ยังไม่ถูก soft delete)
 -- ป้องกันการสร้างสินค้าชื่อเดียวกันซ้ำ แต่อนุญาตให้สร้างใหม่หลัง soft delete
 CREATE UNIQUE INDEX IF NOT EXISTS idx_stocks_name_active ON stocks (name) WHERE deleted_at IS NULL;
+
+-- stock_logs: ใช้กับ GET /api/stock-logs ที่กรองตามสาขาและเรียงใหม่สุดก่อน (ไม่มี index นี้ต้องสแกน+sort ทั้งสาขา)
+CREATE INDEX IF NOT EXISTS idx_stock_logs_branch_created ON stock_logs (branch_id, created_at DESC);

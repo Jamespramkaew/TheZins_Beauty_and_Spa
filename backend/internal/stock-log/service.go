@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
+	"backend/internal/models"
 	_package "backend/package"
 )
 
@@ -29,10 +31,26 @@ const (
 	maxSearchLen    = 100
 )
 
+// ค่าที่อนุญาตของ ?direction=
+const (
+	directionIn  = "in"
+	directionOut = "out"
+)
+
+// log_type ที่ตรงกับ CHECK constraint ของ stock_logs
+var validLogTypes = map[string]bool{
+	"receive": true, "sale": true, "use": true, "open": true, "damaged": true,
+	"expired": true, "internal": true, "transfer": true, "adjust": true, "count_diff": true,
+}
+
+// วันที่ใน ?from= ?to= ถือเป็นเวลาไทย (UTC+7 ไม่มี DST) ใช้ FixedZone เพื่อไม่ต้องพึ่ง tzdata ของเครื่อง
+var thaiTime = time.FixedZone("ICT", 7*60*60)
+
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type Service interface {
 	GetAllStockQuantities(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockQuantitiesQuery) ([]StockQuantity, _package.PageMeta, error)
+	GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]models.StockLog, _package.PageMeta, error)
 }
 
 type service struct {
@@ -120,6 +138,108 @@ func boundedInt(name string, n, def, max int) (int, error) {
 		return 0, invalid("%s must be a number between 1 and %d", name, max)
 	}
 	return n, nil
+}
+
+// GetStockLogsByBranchId คืนประวัติ stock_logs ทีละหน้า เรียงใหม่สุดก่อน
+// admin: เลือกสาขาด้วย q.BranchID ได้ ไม่ส่งมา = ทุกสาขา
+// บัญชีอื่น: ถูกบังคับเป็นสาขาของตัวเองเสมอ (ไม่สนค่า q.BranchID กันดูข้ามสาขา)
+func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]models.StockLog, _package.PageMeta, error) {
+	var noMeta _package.PageMeta
+
+	var branchId string
+	if userRole == "admin" {
+		branchId = strings.TrimSpace(q.BranchID)
+		if err := checkOptionalUUID("branchId", branchId); err != nil {
+			return nil, noMeta, err
+		}
+	} else {
+		if sessionBranchId == "" {
+			return nil, noMeta, errBranchRequired
+		}
+		branchId = sessionBranchId
+	}
+
+	stockId := strings.TrimSpace(q.StockID)
+	if err := checkOptionalUUID("stockId", stockId); err != nil {
+		return nil, noMeta, err
+	}
+	orderItemId := strings.TrimSpace(q.OrderItemID)
+	if err := checkOptionalUUID("orderItemId", orderItemId); err != nil {
+		return nil, noMeta, err
+	}
+	usageId := strings.TrimSpace(q.UsageID)
+	if err := checkOptionalUUID("usageId", usageId); err != nil {
+		return nil, noMeta, err
+	}
+
+	logType := strings.ToLower(strings.TrimSpace(q.LogType))
+	if logType != "" && !validLogTypes[logType] {
+		return nil, noMeta, invalid("logType must be one of: receive, sale, use, open, damaged, expired, internal, transfer, adjust, count_diff")
+	}
+
+	direction := strings.ToLower(strings.TrimSpace(q.Direction))
+	switch direction {
+	case "", directionIn, directionOut:
+	default:
+		return nil, noMeta, invalid("direction must be one of: in, out")
+	}
+
+	var from, until *time.Time
+	if raw := strings.TrimSpace(q.From); raw != "" {
+		d, err := time.ParseInLocation(time.DateOnly, raw, thaiTime)
+		if err != nil {
+			return nil, noMeta, invalid("from must be YYYY-MM-DD")
+		}
+		from = &d
+	}
+	if raw := strings.TrimSpace(q.To); raw != "" {
+		d, err := time.ParseInLocation(time.DateOnly, raw, thaiTime)
+		if err != nil {
+			return nil, noMeta, invalid("to must be YYYY-MM-DD")
+		}
+		end := d.AddDate(0, 0, 1) // นับรวมทั้งวันของ to
+		until = &end
+	}
+	if from != nil && until != nil && !from.Before(*until) {
+		return nil, noMeta, invalid("from must not be after to")
+	}
+
+	page, err := boundedInt("page", q.Page, defaultPage, maxPage)
+	if err != nil {
+		return nil, noMeta, err
+	}
+	pageSize, err := boundedInt("pageSize", q.PageSize, defaultPageSize, maxPageSize)
+	if err != nil {
+		return nil, noMeta, err
+	}
+
+	logs, total, err := s.repository.GetStockLogs(ctx, stockLogFilter{
+		StockID:     stockId,
+		BranchID:    branchId,
+		LogType:     logType,
+		Direction:   direction,
+		From:        from,
+		Until:       until,
+		OrderItemID: orderItemId,
+		UsageID:     usageId,
+		Page:        page,
+		PageSize:    pageSize,
+	})
+	if err != nil {
+		return nil, noMeta, err
+	}
+	if logs == nil {
+		logs = []models.StockLog{} // ตอบ [] ไม่ใช่ null
+	}
+	return logs, _package.NewPageMeta(page, pageSize, total), nil
+}
+
+// checkOptionalUUID ว่างผ่าน ถ้ามีค่าต้องเป็น UUID
+func checkOptionalUUID(name, v string) error {
+	if v != "" && !uuidPattern.MatchString(v) {
+		return invalid("%s must be a valid UUID", name)
+	}
+	return nil
 }
 
 func invalid(format string, args ...any) error {

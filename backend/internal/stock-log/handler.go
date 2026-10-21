@@ -17,6 +17,7 @@ func NewHandler(service Service) *Handler {
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Get("/stock-logs/quantities", middleware.AuthMiddleware, h.GetAllStockQuantities)
+	router.Get("/stock-logs", middleware.AuthMiddleware, h.GetStockLogsByBranchId)
 }
 
 // GetAllStockQuantities GET /api/stock-logs/quantities?branchId=&search=&category=&lowStock=&active=&page=&pageSize=
@@ -38,4 +39,25 @@ func (h *Handler) GetAllStockQuantities(c fiber.Ctx) error {
 
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessPagedResponse("Stock quantities fetched successfully", quantities, meta))
+}
+
+// GetStockLogsByBranchId GET /api/stock-logs?stockId=&branchId=&logType=&direction=&from=&to=&orderItemId=&usageId=&page=&pageSize=
+func (h *Handler) GetStockLogsByBranchId(c fiber.Ctx) error {
+
+	userRole, _ := c.Locals("role").(string)
+	sessionBranchId, _ := c.Locals("branchId").(string)
+
+	var q GetAllStockLogsQuery
+	if err := c.Bind().Query(&q); err != nil {
+		return _package.SendError(c,
+			_package.NewAppError("Invalid query", _package.CodeValidation, err.Error()), "stock-log")
+	}
+
+	logs, meta, err := h.service.GetStockLogsByBranchId(c.Context(), userRole, sessionBranchId, q)
+	if err != nil {
+		return _package.SendError(c, err, "stock-log")
+	}
+
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessPagedResponse("Stock logs fetched successfully", logs, meta))
 }
