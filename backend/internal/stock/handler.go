@@ -3,6 +3,8 @@ package stock
 import (
 	"backend/internal/middleware"
 	_package "backend/package"
+	"math"
+	"strings"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/shopspring/decimal"
@@ -69,7 +71,7 @@ func (h *Handler) AddStock(c fiber.Ctx) error {
 	var req AddStockRequest
 
 	if err := c.Bind().Body(&req); err != nil {
-		return _package.SendError(c, err, "stock")
+		return _package.SendBadBody(c, err)
 	}
 
 	stock, err := h.service.AddStock(c.Context(), req)
@@ -94,68 +96,82 @@ func (h *Handler) UpdateStockById(c fiber.Ctx) error {
 	// อ่าน raw JSON เพื่อเช็คว่า field ไหนถูกส่งมาบ้าง
 	var rawBody map[string]interface{}
 	if err := c.Bind().JSON(&rawBody); err != nil {
-		return _package.SendError(c, err, "stock")
+		return _package.SendBadBody(c, err)
 	}
 
 	var req UpdateStockRequest
 
 	// StockName
 	if val, exists := rawBody["stockName"]; exists {
-		if strVal, ok := val.(string); ok {
-			req.StockName = &strVal
+		strVal, ok := val.(string)
+		if !ok {
+			return badField(c, "stockName must be a string")
 		}
+		req.StockName = &strVal
 	}
 
 	// Price
+	// ถ้าส่ง price มา ต้องเป็นตัวเลขหรือสตริงตัวเลขเท่านั้น ไม่งั้นตอบ 400
+	// (ห้ามเมินแล้วปล่อยเป็น 0 เพราะ service จะเอา 0 ไปเขียนทับราคาเดิม)
 	if val, exists := rawBody["price"]; exists {
-		req.PriceSet = true
 		switch v := val.(type) {
 		case float64:
 			req.Price = decimal.NewFromFloat(v)
 		case string:
-			if price, err := decimal.NewFromString(v); err == nil {
-				req.Price = price
+			price, err := decimal.NewFromString(strings.TrimSpace(v))
+			if err != nil {
+				return badField(c, "price must be a number")
 			}
-		case int:
-			req.Price = decimal.NewFromInt(int64(v))
+			req.Price = price
+		default: // null, bool, object, array
+			return badField(c, "price must be a number")
 		}
+		req.PriceSet = true
 	}
 
 	// IsSellable
 	if val, exists := rawBody["isSellable"]; exists {
-		if boolVal, ok := val.(bool); ok {
-			req.IsSellable = &boolVal
+		boolVal, ok := val.(bool)
+		if !ok {
+			return badField(c, "isSellable must be a boolean")
 		}
+		req.IsSellable = &boolVal
 	}
 
 	// Category
 	if val, exists := rawBody["category"]; exists {
-		if strVal, ok := val.(string); ok {
-			req.Category = &strVal
+		strVal, ok := val.(string)
+		if !ok {
+			return badField(c, "category must be a string")
 		}
+		req.Category = &strVal
 	}
 
 	// UsesPerUnit
 	if val, exists := rawBody["usesPerUnit"]; exists {
-		if floatVal, ok := val.(float64); ok {
-			intVal := int(floatVal)
-			req.UsesPerUnit = &intVal
+		intVal, ok := wholeNumber(val)
+		if !ok {
+			return badField(c, "usesPerUnit must be a whole number")
 		}
+		req.UsesPerUnit = &intVal
 	}
 
 	// MinQty
 	if val, exists := rawBody["minQty"]; exists {
-		if floatVal, ok := val.(float64); ok {
-			intVal := int(floatVal)
-			req.MinQty = &intVal
+		intVal, ok := wholeNumber(val)
+		if !ok {
+			return badField(c, "minQty must be a whole number")
 		}
+		req.MinQty = &intVal
 	}
 
 	// IsActive
 	if val, exists := rawBody["isActive"]; exists {
-		if boolVal, ok := val.(bool); ok {
-			req.IsActive = &boolVal
+		boolVal, ok := val.(bool)
+		if !ok {
+			return badField(c, "isActive must be a boolean")
 		}
+		req.IsActive = &boolVal
 	}
 
 	stock, err := h.service.UpdateStockById(c.Context(), stockId, req)
@@ -165,6 +181,23 @@ func (h *Handler) UpdateStockById(c fiber.Ctx) error {
 
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessResponse("Stock updated successfully", stock))
+}
+
+// badField ตอบ 400 เมื่อ field ใน body ชนิดไม่ตรง (ห้ามเมินเงียบๆ ไม่งั้น client เข้าใจว่าบันทึกแล้ว)
+func badField(c fiber.Ctx, detail string) error {
+	return _package.SendError(c,
+		_package.NewAppError("Invalid request", _package.CodeValidation, detail),
+		"stock")
+}
+
+// wholeNumber แปลงค่า JSON เป็น int เฉพาะเมื่อเป็นจำนวนเต็มที่อยู่ในช่วง int32
+// (2.7, "3", null, 1e20 ไม่ผ่าน ไม่ตัดทศนิยมทิ้งเงียบๆ)
+func wholeNumber(val any) (int, bool) {
+	f, ok := val.(float64)
+	if !ok || f != math.Trunc(f) || f < math.MinInt32 || f > math.MaxInt32 {
+		return 0, false
+	}
+	return int(f), true
 }
 
 // DeleteStockById DELETE /api/stock/:stockId
