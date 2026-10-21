@@ -2,6 +2,7 @@ package stock
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	_package "backend/package"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // error ที่ส่งกลับให้ client (_package.SendError แปลง Code เป็น HTTP status)
@@ -149,11 +151,7 @@ func (s *service) AddStock(ctx context.Context, data AddStockRequest) (models.St
 	if existingStock != nil {
 		// ถ้าไม่มี DeletedAt (ยังไม่ถูกลบ) → ห้ามเพิ่ม
 		if existingStock.DeletedAt.Time.IsZero() {
-			return emptyStock, _package.NewAppError(
-				"Stock name already exists",
-				_package.CodeConflict,
-				fmt.Sprintf("Stock with name '%s' already exists in the system", stockName),
-			)
+			return emptyStock, duplicateName(stockName)
 		}
 	}
 
@@ -176,6 +174,10 @@ func (s *service) AddStock(ctx context.Context, data AddStockRequest) (models.St
 
 	createdStock, err := s.repository.CreateStock(ctx, newStock)
 	if err != nil {
+		// สองคำขอสร้างชื่อเดียวกันพร้อมกันผ่านการเช็คชื่อด้านบนได้ทั้งคู่ unique index เป็นตัวกันจริง
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return emptyStock, duplicateName(stockName)
+		}
 		return emptyStock, err
 	}
 
@@ -225,11 +227,7 @@ func (s *service) UpdateStockById(ctx context.Context, stockId string, data Upda
 			if duplicateStock != nil && duplicateStock.ID != stockId {
 				// ถ้าพบชื่อซ้ำกับ stock อื่น
 				if duplicateStock.DeletedAt.Time.IsZero() {
-					return emptyStock, _package.NewAppError(
-						"Stock name already exists",
-						_package.CodeConflict,
-						fmt.Sprintf("Stock with name '%s' already exists in the system", stockName),
-					)
+					return emptyStock, duplicateName(stockName)
 				}
 			}
 		}
@@ -289,6 +287,9 @@ func (s *service) UpdateStockById(ctx context.Context, stockId string, data Upda
 	// บันทึกการเปลี่ยนแปลงลง DB
 	updatedStock, err := s.repository.UpdateStock(ctx, *existingStock)
 	if err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return emptyStock, duplicateName(existingStock.Name)
+		}
 		return emptyStock, err
 	}
 
@@ -355,6 +356,21 @@ func parseBoundedInt(name, raw string, def, max int) (int, error) {
 	return n, nil
 }
 
+// nameConflict สร้าง error 409 "ชื่อสินค้าซ้ำ" ที่เดียวของทั้งไฟล์ (message และ code ต้องตรงกันทุกจุด)
+func nameConflict(detail string) error {
+	return _package.NewAppError("Stock name already exists", _package.CodeConflict, detail)
+}
+
+// duplicateName ชื่อซ้ำกับสินค้าที่ยังใช้งานอยู่ (ตอนสร้างและตอนเปลี่ยนชื่อ)
+func duplicateName(name string) error {
+	return nameConflict(fmt.Sprintf("Stock with name '%s' already exists in the system", name))
+}
+
+// duplicateNameOnRestore ชื่อซ้ำตอนกู้คืน (ข้อความ detail ต่างจากตอนสร้าง)
+func duplicateNameOnRestore(name string) error {
+	return nameConflict(fmt.Sprintf("Cannot restore: Stock with name '%s' already exists in the system", name))
+}
+
 func invalid(format string, args ...any) error {
 	return _package.NewAppError("Invalid request", _package.CodeValidation, fmt.Sprintf(format, args...))
 }
@@ -396,16 +412,15 @@ func (s *service) RestoreStockById(ctx context.Context, stockId string) (models.
 		return emptyStock, err
 	}
 	if duplicateStock != nil && duplicateStock.DeletedAt.Time.IsZero() {
-		return emptyStock, _package.NewAppError(
-			"Stock name already exists",
-			_package.CodeConflict,
-			fmt.Sprintf("Cannot restore: Stock with name '%s' already exists in the system", existingStock.Name),
-		)
+		return emptyStock, duplicateNameOnRestore(existingStock.Name)
 	}
 
 	// Restore (ลบค่า DeletedAt)
 	restoredStock, err := s.repository.RestoreStock(ctx, stockId)
 	if err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return emptyStock, duplicateNameOnRestore(existingStock.Name)
+		}
 		return emptyStock, err
 	}
 
