@@ -13,6 +13,8 @@ type Repository interface {
 	GetAllStockQuantities(ctx context.Context, f quantityFilter) ([]StockQuantity, int64, error)
 	GetStockLogs(ctx context.Context, f stockLogFilter) ([]models.StockLog, int64, error)
 	CreateStockLog(ctx context.Context, log *models.StockLog) error
+	TransferStockLog(ctx context.Context, data TransferStockLogRequest, logType string) error
+	GetStockQuantity(ctx context.Context, stockId string, branchId string) (int, error)
 }
 
 type repository struct {
@@ -181,4 +183,49 @@ func (r *repository) GetStockLogs(ctx context.Context, f stockLogFilter) ([]mode
 // CreateStockLog
 func (r *repository) CreateStockLog(ctx context.Context, log *models.StockLog) error {
 	return r.db.WithContext(ctx).Create(log).Error
+}
+
+// TransferStockLog ลง 2 แถวใน transaction เดียว: สาขาต้นทาง (-qty) และสาขาปลายทาง (+qty)
+// ถ้าแถวใดแถวหนึ่งพัง จะ rollback ทั้งคู่
+func (r *repository) TransferStockLog(ctx context.Context, data TransferStockLogRequest, logType string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		note := data.Note // แต่ละแถวต้องมี pointer ของตัวเอง
+
+		out := &models.StockLog{
+			LogType:    logType,
+			StockID:    data.StockID,
+			BranchID:   data.FromBranchId,
+			EmployeeID: data.EmployeeID,
+			QtyChange:  -data.Qty,
+			Note:       &note,
+		}
+		if err := tx.Create(out).Error; err != nil {
+			return err
+		}
+
+		inNote := data.Note
+		in := &models.StockLog{
+			LogType:    logType,
+			StockID:    data.StockID,
+			BranchID:   data.ToBranchId,
+			EmployeeID: data.EmployeeID,
+			QtyChange:  data.Qty,
+			Note:       &inNote,
+		}
+		return tx.Create(in).Error
+	})
+}
+
+// GetStockQuantity คืนยอดคงเหลือของสินค้า 1 ชนิดใน 1 สาขา
+func (r *repository) GetStockQuantity(ctx context.Context, stockId string, branchId string) (int, error) {
+	var quantity int
+	err := r.db.WithContext(ctx).
+		Model(&models.StockLog{}).
+		Where("stock_id = ? AND branch_id = ?", stockId, branchId).
+		Select("COALESCE(SUM(qty_change), 0)").
+		Scan(&quantity).Error
+	if err != nil {
+		return 0, err
+	}
+	return quantity, nil
 }

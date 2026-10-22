@@ -118,3 +118,14 @@ type AddStockLogMovementRequest struct {
 	Qty  int    `json:"qty"`
 	Note string `json:"note"` // adjust บังคับ ชนิดอื่นไม่บังคับ (ว่าง = NULL)
 }
+
+// TransferStockLog = request body ของ POST /api/stock-logs/transfer
+type TransferStockLogRequest struct {
+	StockID      string `json:"stockId"`
+	Type         string `json:"type"`
+	FromBranchId string `json:"fromBranchId"`
+	ToBranchId   string `json:"toBranchId"`
+	EmployeeID   string `json:"employeeId"`
+	Qty          int    `json:"qty"`
+	Note         string `json:"-"` // client ไม่ต้องส่ง service สร้างให้เองว่าย้ายจากไหนไปไหน
+}

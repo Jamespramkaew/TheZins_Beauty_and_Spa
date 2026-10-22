@@ -76,6 +76,7 @@ type Service interface {
 	GetAllStockQuantities(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockQuantitiesQuery) ([]StockQuantity, _package.PageMeta, error)
 	GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error)
 	AddStockLogMovement(ctx context.Context, userRole string, sessionBranchId string, data AddStockLogMovementRequest) (*models.StockLog, error)
+	TransferStockLog(ctx context.Context, userRole string, sessionBranchId string, data TransferStockLogRequest) error
 }
 
 type service struct {
@@ -272,7 +273,6 @@ func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, s
 // กฎของแต่ละชนิด (เครื่องหมาย qty, ต้องมี note ไหม) อยู่ใน movementRules
 // admin: ต้องส่ง branchId / บัญชีสาขา: ถูกบังคับเป็นสาขาใน session (ไม่สนค่า data.BranchID)
 func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sessionBranchId string, data AddStockLogMovementRequest) (*models.StockLog, error) {
-	// ---------- ตรวจรูปแบบและสิทธิ์ (ยังไม่แตะ DB) ----------
 
 	logType := strings.ToLower(strings.TrimSpace(data.Type))
 	if logType == "" {
@@ -289,6 +289,7 @@ func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sess
 			return nil, invalid("qty must be positive")
 		}
 		qtyChange = data.Qty * rule.sign
+
 	} else {
 		if data.Qty == 0 {
 			return nil, invalid("qty must not be zero")
@@ -296,7 +297,6 @@ func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sess
 		qtyChange = data.Qty
 	}
 
-	// note ว่าง/เว้นวรรคล้วน = ไม่มีหมายเหตุ เก็บเป็น NULL
 	var note *string
 	if n := strings.TrimSpace(data.Note); n != "" {
 		note = &n
@@ -326,9 +326,6 @@ func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sess
 		}
 		branchId = sessionBranchId
 	}
-
-	// ---------- ตรวจว่ามีอยู่จริง (ก่อน insert ไม่งั้นชน FK แล้วตอบ 500) ----------
-	// Find... ทุกตัวคืน (nil, nil) เมื่อไม่เจอ
 
 	foundStock, err := s.stockRepository.FindStockById(ctx, stockId) // ไม่รวมสินค้าที่ถูก soft delete
 	if err != nil {
@@ -365,6 +362,16 @@ func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sess
 		return nil, invalid("employee does not belong to this branch")
 	}
 
+	if qtyChange < 0 {
+		currentQty, err := s.repository.GetStockQuantity(ctx, stockId, branchId)
+		if err != nil {
+			return nil, err
+		}
+		if currentQty < -qtyChange {
+			return nil, invalid("insufficient stock: available %d, requested %d", currentQty, -qtyChange)
+		}
+	}
+
 	stockLog := &models.StockLog{
 		LogType:    logType,
 		StockID:    stockId,
@@ -378,6 +385,115 @@ func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sess
 	}
 	return stockLog, nil
 }
+
+func (s *service) TransferStockLog(ctx context.Context, userRole string, sessionBranchId string, data TransferStockLogRequest) error {
+
+	logType := "transfer"
+
+	if data.Qty <= 0 {
+		return invalid("qty is required and must be greater than zero")
+	}
+	qtyChange := data.Qty
+
+	stockId := strings.TrimSpace(data.StockID)
+	if err := checkRequiredUUID("stockId", stockId); err != nil {
+		return err
+	}
+
+	var fromBranchId string
+	if userRole == "admin" {
+		fromBranchId = strings.TrimSpace(data.FromBranchId)
+		if err := checkRequiredUUID("fromBranchId", fromBranchId); err != nil {
+			return err
+		}
+	} else {
+		if sessionBranchId == "" {
+			return errBranchRequired
+		}
+		fromBranchId = sessionBranchId
+	}
+
+	toBranchId := strings.TrimSpace(data.ToBranchId)
+	if err := checkRequiredUUID("toBranchId", toBranchId); err != nil {
+		return err
+	}
+
+	if fromBranchId == toBranchId {
+		return invalid("origin and destination branch must be different")
+	}
+
+	employeeId := strings.TrimSpace(data.EmployeeID)
+	if err := checkRequiredUUID("employeeId", employeeId); err != nil {
+		return err
+	}
+
+	foundStock, err := s.stockRepository.FindStockById(ctx, stockId) // ไม่รวมสินค้าที่ถูก soft delete
+	if err != nil {
+		return err
+	}
+	if foundStock == nil {
+		return invalid("stockId not found")
+	}
+
+	foundFromBranch, err := s.branchRepository.FindBranchById(ctx, fromBranchId)
+	if err != nil {
+		return err
+	}
+	if foundFromBranch == nil {
+		return invalid("origin branch not found")
+	}
+	if !foundFromBranch.IsActive {
+		return invalid("origin branch is not active")
+	}
+
+	foundToBranch, err := s.branchRepository.FindBranchById(ctx, toBranchId)
+	if err != nil {
+		return err
+	}
+	if foundToBranch == nil {
+		return invalid("destination branch not found")
+	}
+	if !foundToBranch.IsActive {
+		return invalid("destination branch is not active")
+	}
+
+	foundEmployee, err := s.employeeRepository.FindEmployeeById(ctx, employeeId)
+	if err != nil {
+		return err
+	}
+	if foundEmployee == nil {
+		return invalid("employeeId not found")
+	}
+	if !foundEmployee.IsActive {
+		return invalid("employee is not active")
+	}
+
+	if foundEmployee.BranchID != fromBranchId {
+		return invalid("employee does not belong to the origin branch")
+	}
+
+	currentQty, err := s.repository.GetStockQuantity(ctx, stockId, fromBranchId)
+	if err != nil {
+		return err
+	}
+	if currentQty < qtyChange {
+		return invalid("insufficient stock: available %d, requested %d", currentQty, qtyChange)
+	}
+
+	transfer := TransferStockLogRequest{
+		StockID:      stockId,
+		Type:         logType,
+		FromBranchId: fromBranchId,
+		ToBranchId:   toBranchId,
+		EmployeeID:   employeeId,
+		Qty:          qtyChange,
+		Note:         fmt.Sprintf("Transfer from %s to %s", foundFromBranch.Name, foundToBranch.Name),
+	}
+
+	return s.repository.TransferStockLog(ctx, transfer, logType)
+}
+
+// Helper Function
 
 // checkOptionalUUID ว่างผ่าน ถ้ามีค่าต้องเป็น UUID
 func checkOptionalUUID(name, v string) error {

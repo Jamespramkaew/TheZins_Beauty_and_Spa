@@ -18,7 +18,8 @@ func NewHandler(service Service) *Handler {
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Get("/stock-logs/quantities", middleware.AuthMiddleware, h.GetAllStockQuantities)
 	router.Get("/stock-logs", middleware.AuthMiddleware, h.GetStockLogsByBranchId)
-	router.Post("/stock-logs", middleware.AuthMiddleware, h.AddStockLogMovement)
+	router.Post("/stock-logs", middleware.AuthMiddleware, middleware.ReqEmptyCheck, h.AddStockLogMovement)
+	router.Post("/stock-logs/transfer", middleware.AuthMiddleware, middleware.ReqEmptyCheck, h.TransferStockLog)
 }
 
 // GetAllStockQuantities GET /api/stock-logs/quantities?branchId=&search=&category=&lowStock=&active=&page=&pageSize=
@@ -81,4 +82,22 @@ func (h *Handler) AddStockLogMovement(c fiber.Ctx) error {
 
 	return _package.SendJSON(c, fiber.StatusCreated,
 		_package.SuccessResponse("Stock log movement added successfully", stockLog))
+}
+
+func (h *Handler) TransferStockLog(c fiber.Ctx) error {
+
+	userRole, _ := c.Locals("role").(string)
+	sessionBranchId, _ := c.Locals("branchId").(string)
+
+	var req TransferStockLogRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return _package.SendBadBody(c, err)
+	}
+
+	if err := h.service.TransferStockLog(c.Context(), userRole, sessionBranchId, req); err != nil {
+		return _package.SendError(c, err, "stock-log")
+	}
+
+	return _package.SendJSON(c, fiber.StatusCreated,
+		_package.SuccessResponse("Stock transfer successfully", nil))
 }
