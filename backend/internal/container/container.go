@@ -5,7 +5,9 @@ package container
 import (
 	"backend/config"
 	"backend/internal/authentication"
+	"backend/internal/branch"
 	"backend/internal/customer"
+	"backend/internal/employee"
 	"backend/internal/order"
 	"backend/internal/stock"
 	stocklog "backend/internal/stock-log"
@@ -45,9 +47,15 @@ func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
 	stockService := stock.NewService(stockRepository)
 	stockHandler := stock.NewHandler(stockService)
 
+	// Initialize Branch / Employee (repository อย่างเดียว ยังไม่มี service/handler)
+	branchRepository := branch.NewRepository(db)
+	employeeRepository := employee.NewRepository(db)
+	// TODO: ส่งเข้า stocklog.NewService เมื่อเริ่มใช้เช็ค branchId / employeeId
+	_, _ = branchRepository, employeeRepository
+
 	// Initialize Stock Log Module
 	stockLogRepository := stocklog.NewRepository(db)
-	stockLogService := stocklog.NewService(stockLogRepository)
+	stockLogService := stocklog.NewService(stockLogRepository, stockRepository)
 	stockLogHandler := stocklog.NewHandler(stockLogService)
 
 	return &Container{
