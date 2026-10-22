@@ -12,6 +12,7 @@ import (
 type Repository interface {
 	GetAllStockQuantities(ctx context.Context, f quantityFilter) ([]StockQuantity, int64, error)
 	GetStockLogs(ctx context.Context, f stockLogFilter) ([]models.StockLog, int64, error)
+	CreateStockLog(ctx context.Context, log *models.StockLog) error
 }
 
 type repository struct {
@@ -175,4 +176,9 @@ func (r *repository) GetStockLogs(ctx context.Context, f stockLogFilter) ([]mode
 		return nil, 0, err
 	}
 	return logs, total, nil
+}
+
+// CreateStockLog
+func (r *repository) CreateStockLog(ctx context.Context, log *models.StockLog) error {
+	return r.db.WithContext(ctx).Create(log).Error
 }

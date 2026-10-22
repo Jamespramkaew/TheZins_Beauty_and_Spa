@@ -50,12 +50,10 @@ func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
 	// Initialize Branch / Employee (repository อย่างเดียว ยังไม่มี service/handler)
 	branchRepository := branch.NewRepository(db)
 	employeeRepository := employee.NewRepository(db)
-	// TODO: ส่งเข้า stocklog.NewService เมื่อเริ่มใช้เช็ค branchId / employeeId
-	_, _ = branchRepository, employeeRepository
 
 	// Initialize Stock Log Module
 	stockLogRepository := stocklog.NewRepository(db)
-	stockLogService := stocklog.NewService(stockLogRepository, stockRepository)
+	stockLogService := stocklog.NewService(stockLogRepository, stockRepository, branchRepository, employeeRepository)
 	stockLogHandler := stocklog.NewHandler(stockLogService)
 
 	return &Container{

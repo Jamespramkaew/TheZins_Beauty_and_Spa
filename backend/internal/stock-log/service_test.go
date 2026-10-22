@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"backend/internal/branch"
+	"backend/internal/employee"
 	"backend/internal/models"
+	"backend/internal/stock"
 	_package "backend/package"
 
 	"github.com/stretchr/testify/assert"
@@ -30,10 +33,14 @@ type mockRepo struct {
 	quantities func(ctx context.Context, f quantityFilter) ([]StockQuantity, int64, error)
 	logs       func(ctx context.Context, f stockLogFilter) ([]models.StockLog, int64, error)
 
+	create func(ctx context.Context, log *models.StockLog) error
+
 	quantityCalls int
 	logCalls      int
+	createCalls   int
 	lastQuantity  quantityFilter
 	lastLog       stockLogFilter
+	lastCreated   *models.StockLog
 }
 
 func (m *mockRepo) GetAllStockQuantities(ctx context.Context, f quantityFilter) ([]StockQuantity, int64, error) {
@@ -54,6 +61,68 @@ func (m *mockRepo) GetStockLogs(ctx context.Context, f stockLogFilter) ([]models
 	return nil, 0, nil
 }
 
+func (m *mockRepo) CreateStockLog(ctx context.Context, log *models.StockLog) error {
+	m.createCalls++
+	m.lastCreated = log
+	if m.create != nil {
+		return m.create(ctx, log)
+	}
+	return nil
+}
+
+// mockStockRepo ฝัง stock.Repository ไว้ (nil) เพื่อไม่ต้องเขียนครบ 11 methods
+// เขียนทับเฉพาะ FindStockById ที่ service ใช้ ถ้าเผลอเรียก method อื่นจะ panic ให้เห็นทันที
+// ค่าเริ่มต้น = เจอสินค้าเสมอ
+type mockStockRepo struct {
+	stock.Repository
+	find  func(ctx context.Context, id string) (*models.Stock, error)
+	calls int
+	last  string
+}
+
+func (m *mockStockRepo) FindStockById(ctx context.Context, id string) (*models.Stock, error) {
+	m.calls++
+	m.last = id
+	if m.find != nil {
+		return m.find(ctx, id)
+	}
+	return &models.Stock{ID: id}, nil
+}
+
+// mockBranchRepo / mockEmployeeRepo ค่าเริ่มต้น = เจอเสมอ, active, และพนักงานอยู่สาขา validBranchID
+// (ตรงกับสาขาที่ test ส่วนใหญ่ใช้) ฝัง interface ไว้ ถ้าเรียก method อื่นจะ panic
+type mockBranchRepo struct {
+	branch.Repository
+	find  func(ctx context.Context, id string) (*models.Branch, error)
+	calls int
+	last  string
+}
+
+func (m *mockBranchRepo) FindBranchById(ctx context.Context, id string) (*models.Branch, error) {
+	m.calls++
+	m.last = id
+	if m.find != nil {
+		return m.find(ctx, id)
+	}
+	return &models.Branch{ID: id, IsActive: true}, nil
+}
+
+type mockEmployeeRepo struct {
+	employee.Repository
+	find  func(ctx context.Context, id string) (*models.Employee, error)
+	calls int
+	last  string
+}
+
+func (m *mockEmployeeRepo) FindEmployeeById(ctx context.Context, id string) (*models.Employee, error) {
+	m.calls++
+	m.last = id
+	if m.find != nil {
+		return m.find(ctx, id)
+	}
+	return &models.Employee{ID: id, IsActive: true, BranchID: validBranchID}, nil
+}
+
 // requireAppError เช็คว่าเป็น AppError ที่มี code ตามที่คาด
 func requireAppError(t *testing.T, err error, code string) *_package.AppError {
 	t.Helper()
@@ -68,7 +137,7 @@ func requireAppError(t *testing.T, err error, code string) *_package.AppError {
 
 func TestQuantities_AdminWithoutBranch_SeesAllBranches(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{})
 
 	_, _, err := svc.GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{})
 	require.NoError(t, err)
@@ -77,7 +146,7 @@ func TestQuantities_AdminWithoutBranch_SeesAllBranches(t *testing.T) {
 
 func TestQuantities_AdminCanPickBranch(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{})
 
 	_, _, err := svc.GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{BranchID: "  " + validBranchID + " "})
 	require.NoError(t, err)
@@ -86,7 +155,7 @@ func TestQuantities_AdminCanPickBranch(t *testing.T) {
 
 func TestQuantities_AdminInvalidBranchUUID_Returns400(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{})
 
 	_, _, err := svc.GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{BranchID: "not-a-uuid"})
 	requireAppError(t, err, _package.CodeValidation)
@@ -95,7 +164,7 @@ func TestQuantities_AdminInvalidBranchUUID_Returns400(t *testing.T) {
 
 func TestQuantities_BranchUserForcedToOwnBranch(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{})
 
 	// พยายามดูข้ามสาขาด้วย ?branchId= ต้องถูกเมินและใช้สาขาจาก session
 	_, _, err := svc.GetAllStockQuantities(context.Background(), "branch", validBranchID, GetAllStockQuantitiesQuery{BranchID: otherBranchID})
@@ -105,7 +174,7 @@ func TestQuantities_BranchUserForcedToOwnBranch(t *testing.T) {
 
 func TestQuantities_BranchUserIgnoresGarbageBranchQuery(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{})
 
 	// ค่า branchId ของบัญชีสาขาไม่ถูกใช้ จึงไม่ต้อง validate (ไม่ควร 400)
 	_, _, err := svc.GetAllStockQuantities(context.Background(), "branch", validBranchID, GetAllStockQuantitiesQuery{BranchID: "garbage"})
@@ -115,7 +184,7 @@ func TestQuantities_BranchUserIgnoresGarbageBranchQuery(t *testing.T) {
 
 func TestQuantities_BranchUserWithoutSessionBranch_Returns403(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{})
 
 	_, _, err := svc.GetAllStockQuantities(context.Background(), "branch", "", GetAllStockQuantitiesQuery{})
 	requireAppError(t, err, _package.CodeForbidden)
@@ -140,7 +209,7 @@ func TestQuantities_Category(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &mockRepo{}
-			_, _, err := NewService(repo).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Category: tt.in})
+			_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Category: tt.in})
 			if tt.wantErr {
 				requireAppError(t, err, _package.CodeValidation)
 				assert.Zero(t, repo.quantityCalls)
@@ -169,7 +238,7 @@ func TestQuantities_Active(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &mockRepo{}
-			_, _, err := NewService(repo).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Active: tt.in})
+			_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Active: tt.in})
 			if tt.wantErr {
 				requireAppError(t, err, _package.CodeValidation)
 				return
@@ -183,20 +252,20 @@ func TestQuantities_Active(t *testing.T) {
 func TestQuantities_Search(t *testing.T) {
 	t.Run("trim ช่องว่าง", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Search: "  ครีม  "})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Search: "  ครีม  "})
 		require.NoError(t, err)
 		assert.Equal(t, "ครีม", repo.lastQuantity.Search)
 	})
 
 	t.Run("ภาษาไทย 100 ตัวอักษรผ่าน (นับเป็นตัวอักษร ไม่ใช่ byte)", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Search: strings.Repeat("ก", maxSearchLen)})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Search: strings.Repeat("ก", maxSearchLen)})
 		require.NoError(t, err)
 	})
 
 	t.Run("101 ตัวอักษรไม่ผ่าน", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Search: strings.Repeat("ก", maxSearchLen+1)})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Search: strings.Repeat("ก", maxSearchLen+1)})
 		requireAppError(t, err, _package.CodeValidation)
 		assert.Zero(t, repo.quantityCalls)
 	})
@@ -204,7 +273,7 @@ func TestQuantities_Search(t *testing.T) {
 
 func TestQuantities_LowStockFlagPassedThrough(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{LowStock: true})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{LowStock: true})
 	require.NoError(t, err)
 	assert.True(t, repo.lastQuantity.LowStock)
 }
@@ -230,7 +299,7 @@ func TestQuantities_Paging(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &mockRepo{}
-			_, meta, err := NewService(repo).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Page: tt.page, PageSize: tt.size})
+			_, meta, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{Page: tt.page, PageSize: tt.size})
 			if tt.wantErr {
 				appErr := requireAppError(t, err, _package.CodeValidation)
 				assert.Contains(t, appErr.Detail, tt.wantErrField)
@@ -260,7 +329,7 @@ func TestQuantities_ComputesIsLowStock(t *testing.T) {
 		},
 	}
 
-	items, meta, err := NewService(repo).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{})
+	items, meta, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{})
 	require.NoError(t, err)
 	require.Len(t, items, 4)
 	assert.True(t, items[0].IsLowStock)
@@ -271,7 +340,7 @@ func TestQuantities_ComputesIsLowStock(t *testing.T) {
 }
 
 func TestQuantities_EmptyResultIsEmptySliceNotNil(t *testing.T) {
-	items, meta, err := NewService(&mockRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{})
+	items, meta, err := NewService(&mockRepo{}, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{})
 	require.NoError(t, err)
 	assert.NotNil(t, items, "ต้องตอบ [] ไม่ใช่ null")
 	assert.Empty(t, items)
@@ -283,7 +352,7 @@ func TestQuantities_RepoErrorPropagates(t *testing.T) {
 	repo := &mockRepo{
 		quantities: func(ctx context.Context, f quantityFilter) ([]StockQuantity, int64, error) { return nil, 0, boom },
 	}
-	_, _, err := NewService(repo).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{})
 	assert.ErrorIs(t, err, boom)
 }
 
@@ -291,35 +360,35 @@ func TestQuantities_RepoErrorPropagates(t *testing.T) {
 
 func TestLogs_AdminWithoutBranch_SeesAllBranches(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{})
 	require.NoError(t, err)
 	assert.Equal(t, "", repo.lastLog.BranchID)
 }
 
 func TestLogs_AdminCanPickBranch(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{BranchID: validBranchID})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{BranchID: validBranchID})
 	require.NoError(t, err)
 	assert.Equal(t, validBranchID, repo.lastLog.BranchID)
 }
 
 func TestLogs_AdminInvalidBranchUUID_Returns400(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{BranchID: "xyz"})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{BranchID: "xyz"})
 	requireAppError(t, err, _package.CodeValidation)
 	assert.Zero(t, repo.logCalls)
 }
 
 func TestLogs_BranchUserForcedToOwnBranch(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "branch", validBranchID, GetAllStockLogsQuery{BranchID: otherBranchID})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "branch", validBranchID, GetAllStockLogsQuery{BranchID: otherBranchID})
 	require.NoError(t, err)
 	assert.Equal(t, validBranchID, repo.lastLog.BranchID, "ห้ามดูข้ามสาขา")
 }
 
 func TestLogs_BranchUserWithoutSessionBranch_Returns403(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "branch", "", GetAllStockLogsQuery{})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "branch", "", GetAllStockLogsQuery{})
 	requireAppError(t, err, _package.CodeForbidden)
 	assert.Zero(t, repo.logCalls)
 }
@@ -339,7 +408,7 @@ func TestLogs_OptionalUUIDFilters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name+" ไม่ใช่ UUID", func(t *testing.T) {
 			repo := &mockRepo{}
-			_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", tt.query)
+			_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", tt.query)
 			appErr := requireAppError(t, err, _package.CodeValidation)
 			assert.Contains(t, appErr.Detail, tt.field)
 			assert.Zero(t, repo.logCalls)
@@ -348,7 +417,7 @@ func TestLogs_OptionalUUIDFilters(t *testing.T) {
 
 	t.Run("UUID ที่ถูกต้องถูกส่งต่อให้ repo", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{
 			StockID: validStockID, OrderItemID: validOrderItemID, UsageID: validUsageID,
 		})
 		require.NoError(t, err)
@@ -362,7 +431,7 @@ func TestLogs_LogType(t *testing.T) {
 	for lt := range validLogTypes {
 		t.Run("ผ่าน: "+lt, func(t *testing.T) {
 			repo := &mockRepo{}
-			_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{LogType: lt})
+			_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{LogType: lt})
 			require.NoError(t, err)
 			assert.Equal(t, lt, repo.lastLog.LogType)
 		})
@@ -370,14 +439,14 @@ func TestLogs_LogType(t *testing.T) {
 
 	t.Run("ตัวพิมพ์ใหญ่และช่องว่างถูก normalize", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{LogType: "  COUNT_DIFF "})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{LogType: "  COUNT_DIFF "})
 		require.NoError(t, err)
 		assert.Equal(t, "count_diff", repo.lastLog.LogType)
 	})
 
 	t.Run("ไม่รู้จัก", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{LogType: "steal"})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{LogType: "steal"})
 		requireAppError(t, err, _package.CodeValidation)
 		assert.Zero(t, repo.logCalls)
 	})
@@ -408,7 +477,7 @@ func TestLogs_Direction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &mockRepo{}
-			_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{Direction: tt.in})
+			_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{Direction: tt.in})
 			if tt.wantErr {
 				requireAppError(t, err, _package.CodeValidation)
 				return
@@ -421,7 +490,7 @@ func TestLogs_Direction(t *testing.T) {
 
 func TestLogs_DateRange_UsesThaiTime(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{
 		From: "2026-10-01", To: "2026-10-03",
 	})
 	require.NoError(t, err)
@@ -453,7 +522,7 @@ func TestLogs_DateRange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &mockRepo{}
-			_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{From: tt.from, To: tt.to})
+			_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{From: tt.from, To: tt.to})
 			if tt.wantErr {
 				appErr := requireAppError(t, err, _package.CodeValidation)
 				assert.Equal(t, tt.detail, appErr.Detail)
@@ -470,7 +539,7 @@ func TestLogs_DateRange(t *testing.T) {
 func TestLogs_Paging(t *testing.T) {
 	t.Run("ค่าเริ่มต้น", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, meta, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{})
+		_, meta, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{})
 		require.NoError(t, err)
 		assert.Equal(t, defaultPage, repo.lastLog.Page)
 		assert.Equal(t, defaultPageSize, repo.lastLog.PageSize)
@@ -479,14 +548,14 @@ func TestLogs_Paging(t *testing.T) {
 
 	t.Run("pageSize เกินสูงสุด", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: maxPageSize + 1})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: maxPageSize + 1})
 		requireAppError(t, err, _package.CodeValidation)
 		assert.Zero(t, repo.logCalls)
 	})
 
 	t.Run("page ติดลบ", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{Page: -3})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{Page: -3})
 		requireAppError(t, err, _package.CodeValidation)
 	})
 }
@@ -495,7 +564,7 @@ func TestLogs_Paging(t *testing.T) {
 
 func TestLogs_AllFiltersPassedToRepo(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{
 		StockID: validStockID, BranchID: validBranchID, LogType: "open", Direction: "out",
 		OrderItemID: validOrderItemID, UsageID: validUsageID, Page: 2, PageSize: 10,
 	})
@@ -527,7 +596,7 @@ func TestLogs_MapsModelToResponse(t *testing.T) {
 		},
 	}
 
-	items, meta, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: 20})
+	items, meta, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: 20})
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 
@@ -545,7 +614,7 @@ func TestLogs_MapsModelToResponse(t *testing.T) {
 }
 
 func TestLogs_EmptyResultIsEmptySliceNotNil(t *testing.T) {
-	items, _, err := NewService(&mockRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{})
+	items, _, err := NewService(&mockRepo{}, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{})
 	require.NoError(t, err)
 	assert.NotNil(t, items, "ต้องตอบ [] ไม่ใช่ null")
 	assert.Empty(t, items)
@@ -556,6 +625,367 @@ func TestLogs_RepoErrorPropagates(t *testing.T) {
 	repo := &mockRepo{
 		logs: func(ctx context.Context, f stockLogFilter) ([]models.StockLog, int64, error) { return nil, 0, boom },
 	}
-	_, _, err := NewService(repo).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{})
 	assert.ErrorIs(t, err, boom)
 }
+
+// ---------- AddStockLogMovement ----------
+
+func validMovement() AddStockLogMovementRequest {
+	return AddStockLogMovementRequest{
+		Type: "receive", BranchID: validBranchID, StockID: validStockID, EmployeeID: validEmployeeID, Qty: 10,
+	}
+}
+
+func TestAdd_SignByType(t *testing.T) {
+	tests := []struct {
+		logType string
+		want    int
+	}{
+		{"receive", 10},
+		{"expired", -10},
+		{"damaged", -10},
+		{"internal", -10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.logType, func(t *testing.T) {
+			repo := &mockRepo{}
+			req := validMovement()
+			req.Type = tt.logType
+
+			got, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tt.logType, got.LogType)
+			assert.Equal(t, tt.want, got.QtyChange)
+			assert.Equal(t, 1, repo.createCalls)
+			assert.Same(t, repo.lastCreated, got, "ต้องคืนแถวเดียวกับที่ส่งให้ repo (GORM เติม id/created_at ให้)")
+		})
+	}
+}
+
+func TestAdd_TypeIsNormalized(t *testing.T) {
+	repo := &mockRepo{}
+	req := validMovement()
+	req.Type = "  DAMAGED "
+
+	got, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
+	require.NoError(t, err)
+	assert.Equal(t, "damaged", got.LogType)
+	assert.Equal(t, -10, got.QtyChange)
+}
+
+func TestAdd_MapsFieldsAndTrimsIDs(t *testing.T) {
+	repo := &mockRepo{}
+	req := validMovement()
+	req.StockID = "  " + validStockID + " "
+	req.EmployeeID = " " + validEmployeeID + "  "
+	req.BranchID = " " + validBranchID + " "
+
+	got, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
+	require.NoError(t, err)
+	assert.Equal(t, validStockID, got.StockID)
+	assert.Equal(t, validEmployeeID, got.EmployeeID)
+	assert.Equal(t, validBranchID, got.BranchID)
+}
+
+func TestAdd_Branch(t *testing.T) {
+	t.Run("admin ต้องส่ง branchId", func(t *testing.T) {
+		repo := &mockRepo{}
+		req := validMovement()
+		req.BranchID = ""
+
+		_, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
+		appErr := requireAppError(t, err, _package.CodeValidation)
+		assert.Contains(t, appErr.Detail, "branchId")
+		assert.Zero(t, repo.createCalls)
+	})
+
+	t.Run("admin ส่ง branchId ไม่ใช่ UUID", func(t *testing.T) {
+		repo := &mockRepo{}
+		req := validMovement()
+		req.BranchID = "xyz"
+
+		_, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
+		requireAppError(t, err, _package.CodeValidation)
+		assert.Zero(t, repo.createCalls)
+	})
+
+	t.Run("บัญชีสาขาถูกบังคับเป็นสาขาใน session", func(t *testing.T) {
+		repo := &mockRepo{}
+		req := validMovement()
+		req.BranchID = otherBranchID // พยายามลงข้ามสาขา
+
+		got, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "branch", validBranchID, req)
+		require.NoError(t, err)
+		assert.Equal(t, validBranchID, got.BranchID)
+	})
+
+	t.Run("บัญชีสาขาไม่ต้องส่ง branchId", func(t *testing.T) {
+		repo := &mockRepo{}
+		req := validMovement()
+		req.BranchID = ""
+
+		got, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "branch", validBranchID, req)
+		require.NoError(t, err)
+		assert.Equal(t, validBranchID, got.BranchID)
+	})
+
+	t.Run("บัญชีสาขาที่ session ไม่มีสาขา → 403", func(t *testing.T) {
+		repo := &mockRepo{}
+		_, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "branch", "", validMovement())
+		requireAppError(t, err, _package.CodeForbidden)
+		assert.Zero(t, repo.createCalls)
+	})
+}
+
+func TestAdd_ValidationReturns400AndNeverReachesRepo(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(r *AddStockLogMovementRequest)
+		field  string
+	}{
+		{"type ว่าง", func(r *AddStockLogMovementRequest) { r.Type = "" }, "type"},
+		{"type เป็นช่องว่างล้วน", func(r *AddStockLogMovementRequest) { r.Type = "   " }, "type"},
+		{"type ไม่รู้จัก", func(r *AddStockLogMovementRequest) { r.Type = "steal" }, "type"},
+		{"type ถูกต้องใน GET แต่ห้ามในเส้นนี้: sale", func(r *AddStockLogMovementRequest) { r.Type = "sale" }, "type"},
+		{"type ห้ามในเส้นนี้: adjust", func(r *AddStockLogMovementRequest) { r.Type = "adjust" }, "type"},
+		{"type ห้ามในเส้นนี้: transfer", func(r *AddStockLogMovementRequest) { r.Type = "transfer" }, "type"},
+		{"qty เป็น 0", func(r *AddStockLogMovementRequest) { r.Qty = 0 }, "qty"},
+		{"qty ติดลบ", func(r *AddStockLogMovementRequest) { r.Qty = -5 }, "qty"},
+		{"stockId ว่าง", func(r *AddStockLogMovementRequest) { r.StockID = "" }, "stockId"},
+		{"stockId เป็นช่องว่างล้วน", func(r *AddStockLogMovementRequest) { r.StockID = "  " }, "stockId"},
+		{"stockId ไม่ใช่ UUID", func(r *AddStockLogMovementRequest) { r.StockID = "abc" }, "stockId"},
+		{"employeeId ว่าง", func(r *AddStockLogMovementRequest) { r.EmployeeID = "" }, "employeeId"},
+		{"employeeId เป็นช่องว่างล้วน", func(r *AddStockLogMovementRequest) { r.EmployeeID = " " }, "employeeId"},
+		{"employeeId ไม่ใช่ UUID", func(r *AddStockLogMovementRequest) { r.EmployeeID = "abc" }, "employeeId"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			req := validMovement()
+			tt.mutate(&req)
+
+			got, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
+			appErr := requireAppError(t, err, _package.CodeValidation)
+			assert.Contains(t, appErr.Detail, tt.field)
+			assert.Nil(t, got)
+			assert.Zero(t, repo.createCalls, "ห้ามถึง repo ถ้า validate ไม่ผ่าน")
+		})
+	}
+}
+
+func TestAdd_StockMustExist(t *testing.T) {
+	t.Run("ไม่เจอสินค้า → 400 และไม่เขียน", func(t *testing.T) {
+		repo := &mockRepo{}
+		stocks := &mockStockRepo{find: func(ctx context.Context, id string) (*models.Stock, error) { return nil, nil }}
+
+		got, err := NewService(repo, stocks, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", validMovement())
+		appErr := requireAppError(t, err, _package.CodeValidation)
+		assert.Contains(t, appErr.Detail, "stockId")
+		assert.Nil(t, got)
+		assert.Zero(t, repo.createCalls)
+	})
+
+	t.Run("ค้นด้วย stockId ที่ trim แล้ว", func(t *testing.T) {
+		repo := &mockRepo{}
+		stocks := &mockStockRepo{}
+		req := validMovement()
+		req.StockID = "  " + validStockID + " "
+
+		_, err := NewService(repo, stocks, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
+		require.NoError(t, err)
+		assert.Equal(t, validStockID, stocks.last)
+	})
+
+	t.Run("DB ของ stock มีปัญหา → ส่ง error ต่อ และไม่เขียน", func(t *testing.T) {
+		boom := errors.New("db down")
+		repo := &mockRepo{}
+		stocks := &mockStockRepo{find: func(ctx context.Context, id string) (*models.Stock, error) { return nil, boom }}
+
+		_, err := NewService(repo, stocks, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", validMovement())
+		assert.ErrorIs(t, err, boom)
+		assert.Zero(t, repo.createCalls)
+	})
+
+	t.Run("UUID ผิดรูปแบบ ไม่ต้องถึง DB", func(t *testing.T) {
+		stocks := &mockStockRepo{}
+		req := validMovement()
+		req.StockID = "abc"
+
+		_, err := NewService(&mockRepo{}, stocks, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
+		requireAppError(t, err, _package.CodeValidation)
+		assert.Zero(t, stocks.calls)
+	})
+}
+
+func TestAdd_BranchMustExistAndBeActive(t *testing.T) {
+	tests := []struct {
+		name   string
+		find   func(ctx context.Context, id string) (*models.Branch, error)
+		detail string
+	}{
+		{"ไม่เจอสาขา", func(ctx context.Context, id string) (*models.Branch, error) { return nil, nil }, "branchId not found"},
+		{"สาขาปิดใช้งาน", func(ctx context.Context, id string) (*models.Branch, error) {
+			return &models.Branch{ID: id, IsActive: false}, nil
+		}, "branch is not active"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			svc := NewService(repo, &mockStockRepo{}, &mockBranchRepo{find: tt.find}, &mockEmployeeRepo{})
+
+			got, err := svc.AddStockLogMovement(context.Background(), "admin", "", validMovement())
+			appErr := requireAppError(t, err, _package.CodeValidation)
+			assert.Equal(t, tt.detail, appErr.Detail)
+			assert.Nil(t, got)
+			assert.Zero(t, repo.createCalls)
+		})
+	}
+
+	t.Run("ตรวจสาขาที่ resolve แล้ว (บัญชีสาขาใช้สาขาใน session)", func(t *testing.T) {
+		branches := &mockBranchRepo{}
+		req := validMovement()
+		req.BranchID = otherBranchID
+
+		_, err := NewService(&mockRepo{}, &mockStockRepo{}, branches, &mockEmployeeRepo{}).
+			AddStockLogMovement(context.Background(), "branch", validBranchID, req)
+		require.NoError(t, err)
+		assert.Equal(t, validBranchID, branches.last)
+	})
+
+	t.Run("DB error ถูกส่งต่อ", func(t *testing.T) {
+		boom := errors.New("db down")
+		repo := &mockRepo{}
+		branches := &mockBranchRepo{find: func(ctx context.Context, id string) (*models.Branch, error) { return nil, boom }}
+
+		_, err := NewService(repo, &mockStockRepo{}, branches, &mockEmployeeRepo{}).
+			AddStockLogMovement(context.Background(), "admin", "", validMovement())
+		assert.ErrorIs(t, err, boom)
+		assert.Zero(t, repo.createCalls)
+	})
+}
+
+func TestAdd_EmployeeMustExistBeActiveAndInSameBranch(t *testing.T) {
+	tests := []struct {
+		name   string
+		find   func(ctx context.Context, id string) (*models.Employee, error)
+		detail string
+	}{
+		{"ไม่เจอพนักงาน", func(ctx context.Context, id string) (*models.Employee, error) { return nil, nil }, "employeeId not found"},
+		{"พนักงานไม่ active", func(ctx context.Context, id string) (*models.Employee, error) {
+			return &models.Employee{ID: id, IsActive: false, BranchID: validBranchID}, nil
+		}, "employee is not active"},
+		{"พนักงานอยู่คนละสาขา", func(ctx context.Context, id string) (*models.Employee, error) {
+			return &models.Employee{ID: id, IsActive: true, BranchID: otherBranchID}, nil
+		}, "employee does not belong to this branch"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			svc := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{find: tt.find})
+
+			got, err := svc.AddStockLogMovement(context.Background(), "admin", "", validMovement())
+			appErr := requireAppError(t, err, _package.CodeValidation)
+			assert.Equal(t, tt.detail, appErr.Detail)
+			assert.Nil(t, got)
+			assert.Zero(t, repo.createCalls, "ห้ามเขียน log ถ้าพนักงานไม่ผ่าน")
+		})
+	}
+
+	t.Run("บัญชีสาขาส่ง branchId สาขาอื่นมา พนักงานต้องตรงกับสาขาใน session", func(t *testing.T) {
+		repo := &mockRepo{}
+		employees := &mockEmployeeRepo{find: func(ctx context.Context, id string) (*models.Employee, error) {
+			return &models.Employee{ID: id, IsActive: true, BranchID: otherBranchID}, nil
+		}}
+		req := validMovement()
+		req.BranchID = otherBranchID // ถูกเมิน พนักงานของ otherBranch จึงใช้ในสาขา validBranchID ไม่ได้
+
+		_, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, employees).
+			AddStockLogMovement(context.Background(), "branch", validBranchID, req)
+		requireAppError(t, err, _package.CodeValidation)
+		assert.Zero(t, repo.createCalls)
+	})
+
+	t.Run("ค้นด้วย employeeId ที่ trim แล้ว", func(t *testing.T) {
+		employees := &mockEmployeeRepo{}
+		req := validMovement()
+		req.EmployeeID = " " + validEmployeeID + " "
+
+		_, err := NewService(&mockRepo{}, &mockStockRepo{}, &mockBranchRepo{}, employees).
+			AddStockLogMovement(context.Background(), "admin", "", req)
+		require.NoError(t, err)
+		assert.Equal(t, validEmployeeID, employees.last)
+	})
+
+	t.Run("DB error ถูกส่งต่อ", func(t *testing.T) {
+		boom := errors.New("db down")
+		employees := &mockEmployeeRepo{find: func(ctx context.Context, id string) (*models.Employee, error) { return nil, boom }}
+
+		_, err := NewService(&mockRepo{}, &mockStockRepo{}, &mockBranchRepo{}, employees).
+			AddStockLogMovement(context.Background(), "admin", "", validMovement())
+		assert.ErrorIs(t, err, boom)
+	})
+}
+
+func TestAdd_FormatErrorsNeverReachDB(t *testing.T) {
+	stocks, branches, employees := &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}
+	svc := NewService(&mockRepo{}, stocks, branches, employees)
+
+	req := validMovement()
+	req.Qty = 0
+	_, err := svc.AddStockLogMovement(context.Background(), "admin", "", req)
+	requireAppError(t, err, _package.CodeValidation)
+
+	req = validMovement()
+	req.BranchID = "bad"
+	_, err = svc.AddStockLogMovement(context.Background(), "admin", "", req)
+	requireAppError(t, err, _package.CodeValidation)
+
+	_, err = svc.AddStockLogMovement(context.Background(), "branch", "", validMovement())
+	requireAppError(t, err, _package.CodeForbidden)
+
+	assert.Zero(t, stocks.calls+branches.calls+employees.calls, "validate/สิทธิ์ไม่ผ่านต้องไม่ query DB")
+}
+
+func TestAdd_Note(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want *string
+	}{
+		{"ไม่ส่ง = NULL", "", nil},
+		{"เว้นวรรคล้วน = NULL", "   ", nil},
+		{"มีข้อความ (trim)", "  ของหมดอายุ  ", ptr("ของหมดอายุ")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			req := validMovement()
+			req.Note = tt.in
+
+			got, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.Note)
+		})
+	}
+}
+
+func TestAdd_RepoErrorPropagates(t *testing.T) {
+	boom := errors.New("db down")
+	repo := &mockRepo{create: func(ctx context.Context, log *models.StockLog) error { return boom }}
+
+	got, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", validMovement())
+	assert.ErrorIs(t, err, boom)
+	assert.Nil(t, got, "ห้ามคืนแถวที่ยังไม่ได้บันทึก")
+}
+
+func TestMovementSign_OnlyManualTypes(t *testing.T) {
+	// เส้น POST นี้รับแค่ 4 ชนิด ชนิดอื่น (sale/use/open/transfer/adjust/count_diff) ต้องมาจากที่อื่น
+	assert.Equal(t, map[string]int{"receive": 1, "expired": -1, "damaged": -1, "internal": -1}, movementSign)
+	for lt := range movementSign {
+		assert.True(t, validLogTypes[lt], "%s ต้องอยู่ใน CHECK constraint ของ stock_logs", lt)
+	}
+}
+
+func ptr(s string) *string { return &s }

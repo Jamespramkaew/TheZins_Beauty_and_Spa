@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"backend/internal/models"
 	_package "backend/package"
 
 	"github.com/gofiber/fiber/v3"
@@ -23,7 +25,10 @@ import (
 type mockService struct {
 	quantities func(ctx context.Context, role, branch string, q GetAllStockQuantitiesQuery) ([]StockQuantity, _package.PageMeta, error)
 	logs       func(ctx context.Context, role, branch string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error)
+	add        func(ctx context.Context, role, branch string, data AddStockLogMovementRequest) (*models.StockLog, error)
 
+	addCalls             int
+	lastAddRequest       AddStockLogMovementRequest
 	lastRole, lastBranch string
 	lastQuantityQuery    GetAllStockQuantitiesQuery
 	lastLogQuery         GetAllStockLogsQuery
@@ -35,6 +40,15 @@ func (m *mockService) GetAllStockQuantities(ctx context.Context, role, branch st
 		return m.quantities(ctx, role, branch, q)
 	}
 	return []StockQuantity{}, _package.NewPageMeta(1, 20, 0), nil
+}
+
+func (m *mockService) AddStockLogMovement(ctx context.Context, role, branch string, data AddStockLogMovementRequest) (*models.StockLog, error) {
+	m.addCalls++
+	m.lastRole, m.lastBranch, m.lastAddRequest = role, branch, data
+	if m.add != nil {
+		return m.add(ctx, role, branch, data)
+	}
+	return &models.StockLog{ID: "new-log", LogType: data.Type, StockID: data.StockID, BranchID: data.BranchID, EmployeeID: data.EmployeeID}, nil
 }
 
 func (m *mockService) GetStockLogsByBranchId(ctx context.Context, role, branch string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error) {
@@ -59,7 +73,24 @@ func newTestApp(svc Service, role, branchID string) *fiber.App {
 	})
 	app.Get("/stock-logs/quantities", h.GetAllStockQuantities)
 	app.Get("/stock-logs", h.GetStockLogsByBranchId)
+	app.Post("/stock-logs", h.AddStockLogMovement)
 	return app
+}
+
+func doPost(t *testing.T, app *fiber.App, path, body string) (*http.Response, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(raw, &parsed), "response ต้องเป็น JSON: %s", raw)
+	return resp, parsed
 }
 
 func doGet(t *testing.T, app *fiber.App, path string) (*http.Response, map[string]any) {
@@ -284,7 +315,137 @@ func TestHandler_GetQuantities_ServiceErrorMapping(t *testing.T) {
 	}
 }
 
+// ---------- POST /stock-logs ----------
+
+func validMovementBody() string {
+	return `{"type":"receive","branchId":"` + validBranchID + `","stockId":"` + validStockID +
+		`","employeeId":"` + validEmployeeID + `","qty":10,"note":"รับของ"}`
+}
+
+func TestHandler_AddMovement_Success201(t *testing.T) {
+	note := "รับของ"
+	svc := &mockService{
+		add: func(ctx context.Context, role, branch string, data AddStockLogMovementRequest) (*models.StockLog, error) {
+			return &models.StockLog{
+				ID: "log-1", LogType: "receive", QtyChange: 10, Note: &note,
+				StockID: validStockID, BranchID: validBranchID, EmployeeID: validEmployeeID,
+			}, nil
+		},
+	}
+
+	resp, body := doPost(t, newTestApp(svc, "admin", ""), "/stock-logs", validMovementBody())
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	assert.Equal(t, true, body["success"])
+	data := body["data"].(map[string]any)
+	assert.Equal(t, "log-1", data["id"])
+	assert.Equal(t, "receive", data["log_type"])
+	assert.EqualValues(t, 10, data["qty_change"])
+	assert.Equal(t, "รับของ", data["note"])
+}
+
+func TestHandler_AddMovement_BindsJSONBody(t *testing.T) {
+	svc := &mockService{}
+	resp, _ := doPost(t, newTestApp(svc, "admin", ""), "/stock-logs", validMovementBody())
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	assert.Equal(t, AddStockLogMovementRequest{
+		Type: "receive", BranchID: validBranchID, StockID: validStockID, EmployeeID: validEmployeeID, Qty: 10, Note: "รับของ",
+	}, svc.lastAddRequest)
+}
+
+func TestHandler_AddMovement_PassesRoleAndBranchFromSession(t *testing.T) {
+	svc := &mockService{}
+	resp, _ := doPost(t, newTestApp(svc, "branch", validBranchID), "/stock-logs", validMovementBody())
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	assert.Equal(t, "branch", svc.lastRole)
+	assert.Equal(t, validBranchID, svc.lastBranch)
+}
+
+func TestHandler_AddMovement_BadBodyReturns400(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"JSON พัง", `{"type":`},
+		{"qty เป็น string", `{"type":"receive","qty":"ten"}`},
+		{"qty เป็นทศนิยม", `{"type":"receive","qty":1.5}`},
+		{"type เป็นตัวเลข", `{"type":1}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockService{}
+			resp, body := doPost(t, newTestApp(svc, "admin", ""), "/stock-logs", tt.body)
+
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			assert.Equal(t, false, body["success"])
+			assert.Equal(t, _package.CodeValidation, errorOf(t, body)["type"])
+			assert.Zero(t, svc.addCalls, "service ต้องไม่ถูกเรียก")
+		})
+	}
+}
+
+func TestHandler_AddMovement_WrongContentTypeReturns400(t *testing.T) {
+	svc := &mockService{}
+	req := httptest.NewRequest(http.MethodPost, "/stock-logs", strings.NewReader(validMovementBody()))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := newTestApp(svc, "admin", "").Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Zero(t, svc.addCalls)
+}
+
+func TestHandler_AddMovement_ServiceErrorMapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantType   string
+	}{
+		{"validation → 400", _package.NewAppError("Invalid request", _package.CodeValidation, "qty must be positive"), http.StatusBadRequest, _package.CodeValidation},
+		{"forbidden → 403", errBranchRequired, http.StatusForbidden, _package.CodeForbidden},
+		{"error อื่น → 500", errors.New("pq: connection refused"), http.StatusInternalServerError, _package.CodeInternal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockService{
+				add: func(ctx context.Context, role, branch string, data AddStockLogMovementRequest) (*models.StockLog, error) {
+					return nil, tt.err
+				},
+			}
+			resp, body := doPost(t, newTestApp(svc, "admin", ""), "/stock-logs", validMovementBody())
+
+			assert.Equal(t, tt.wantStatus, resp.StatusCode)
+			assert.Equal(t, false, body["success"])
+			errObj := errorOf(t, body)
+			assert.Equal(t, tt.wantType, errObj["type"])
+			if tt.wantStatus == http.StatusInternalServerError {
+				assert.NotContains(t, body["message"], "pq:")
+				assert.Empty(t, errObj["details"])
+			}
+		})
+	}
+}
+
 // ---------- ความปลอดภัยของ route ----------
+
+func TestRegisterRoutes_PostRequiresAuth(t *testing.T) {
+	svc := &mockService{}
+	app := fiber.New(fiber.Config{ErrorHandler: _package.FiberErrorHandler})
+	NewHandler(svc).RegisterRoutes(app.Group("/api"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stock-logs", strings.NewReader(validMovementBody()))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Zero(t, svc.addCalls, "ไม่มี token ต้องไม่ถึง service")
+}
 
 // เส้นทางจริงต้องผูก AuthMiddleware ทั้งสองเส้น: ไม่มี token ต้องเข้าไม่ได้ และ service ต้องไม่ถูกเรียก
 func TestRegisterRoutes_RequiresAuth(t *testing.T) {
@@ -304,12 +465,12 @@ func TestRegisterRoutes_RequiresAuth(t *testing.T) {
 	}
 }
 
-// stock_logs เป็น ledger แบบ append-only: ต้องไม่มี route แก้/ลบ/สร้างผ่านเส้นนี้
-func TestRegisterRoutes_OnlyGetIsExposed(t *testing.T) {
+// stock_logs เป็น ledger แบบ append-only: ต้องไม่มี route แก้/ลบ (เพิ่มได้ผ่าน POST เท่านั้น)
+func TestRegisterRoutes_NoUpdateOrDelete(t *testing.T) {
 	app := fiber.New(fiber.Config{ErrorHandler: _package.FiberErrorHandler})
 	NewHandler(&mockService{}).RegisterRoutes(app.Group("/api"))
 
-	for _, method := range []string{http.MethodPost, http.MethodPatch, http.MethodPut, http.MethodDelete} {
+	for _, method := range []string{http.MethodPatch, http.MethodPut, http.MethodDelete} {
 		t.Run(method, func(t *testing.T) {
 			resp, err := app.Test(httptest.NewRequest(method, "/api/stock-logs", nil))
 			require.NoError(t, err)

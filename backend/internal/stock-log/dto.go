@@ -106,3 +106,13 @@ func toStockLogResponse(l models.StockLog) StockLogResponse {
 	}
 	return r
 }
+
+// AddStockLogMovementRequest = request body ของ POST /api/stock-logs (receive/expired/damaged/internal)
+type AddStockLogMovementRequest struct {
+	Type       string `json:"type"`
+	BranchID   string `json:"branchId"`
+	StockID    string `json:"stockId"`
+	EmployeeID string `json:"employeeId"`
+	Qty        int    `json:"qty"`
+	Note       string `json:"note"`
+}

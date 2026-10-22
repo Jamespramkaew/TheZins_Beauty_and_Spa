@@ -18,6 +18,7 @@ func NewHandler(service Service) *Handler {
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Get("/stock-logs/quantities", middleware.AuthMiddleware, h.GetAllStockQuantities)
 	router.Get("/stock-logs", middleware.AuthMiddleware, h.GetStockLogsByBranchId)
+	router.Post("/stock-logs", middleware.AuthMiddleware, h.AddStockLogMovement)
 }
 
 // GetAllStockQuantities GET /api/stock-logs/quantities?branchId=&search=&category=&lowStock=&active=&page=&pageSize=
@@ -60,4 +61,25 @@ func (h *Handler) GetStockLogsByBranchId(c fiber.Ctx) error {
 
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessPagedResponse("Stock logs fetched successfully", logs, meta))
+}
+
+// AddStockLogMovement POST /api/stock-logs
+func (h *Handler) AddStockLogMovement(c fiber.Ctx) error {
+
+	userRole, _ := c.Locals("role").(string)
+	sessionBranchId, _ := c.Locals("branchId").(string)
+
+	var req AddStockLogMovementRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return _package.SendBadBody(c, err)
+	}
+
+	stockLog, err := h.service.AddStockLogMovement(c.Context(), userRole, sessionBranchId, req)
+	if err != nil {
+		return _package.SendError(c, err, "stock-log")
+	}
+
+	return _package.SendJSON(c, fiber.StatusCreated,
+		_package.SuccessResponse("Stock log movement added successfully", stockLog))
+
 }

@@ -7,6 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"backend/internal/branch"
+	"backend/internal/employee"
+	"backend/internal/models"
+	"backend/internal/stock"
+
 	_package "backend/package"
 )
 
@@ -42,6 +47,14 @@ var validLogTypes = map[string]bool{
 	"expired": true, "internal": true, "transfer": true, "adjust": true, "count_diff": true,
 }
 
+// log type สำหรับ AddStockLogMovement พร้อมเครื่องหมายของ qty_change (+1 = เพิ่มยอด, -1 = ลดยอด)
+var movementSign = map[string]int{
+	"receive":  1,
+	"expired":  -1,
+	"damaged":  -1,
+	"internal": -1,
+}
+
 // วันที่ใน ?from= ?to= ถือเป็นเวลาไทย (UTC+7 ไม่มี DST) ใช้ FixedZone เพื่อไม่ต้องพึ่ง tzdata ของเครื่อง
 var thaiTime = time.FixedZone("ICT", 7*60*60)
 
@@ -50,14 +63,23 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 type Service interface {
 	GetAllStockQuantities(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockQuantitiesQuery) ([]StockQuantity, _package.PageMeta, error)
 	GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error)
+	AddStockLogMovement(ctx context.Context, userRole string, branchId string, data AddStockLogMovementRequest) (*models.StockLog, error)
 }
 
 type service struct {
-	repository Repository
+	repository         Repository
+	stockRepository    stock.Repository
+	branchRepository   branch.Repository
+	employeeRepository employee.Repository
 }
 
-func NewService(repository Repository) Service {
-	return &service{repository: repository}
+func NewService(repository Repository, stockRepository stock.Repository, branchRepository branch.Repository, employeeRepository employee.Repository) Service {
+	return &service{
+		repository:         repository,
+		stockRepository:    stockRepository,
+		branchRepository:   branchRepository,
+		employeeRepository: employeeRepository,
+	}
 }
 
 // GetAllStockQuantities คืนยอดคงเหลือของสินค้าแยกตามสาขา
@@ -234,6 +256,98 @@ func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, s
 	return items, _package.NewPageMeta(page, pageSize, total), nil
 }
 
+// AddStockLogMovement เพิ่ม Stock-log สำหรับ receive, expired, damaged, internal
+func (s *service) AddStockLogMovement(ctx context.Context, userRole string, branchId string, data AddStockLogMovementRequest) (*models.StockLog, error) {
+
+	logType := strings.ToLower(strings.TrimSpace(data.Type))
+	if logType == "" {
+		return nil, invalid("type is required")
+	}
+	sign, ok := movementSign[logType]
+	if !ok {
+		return nil, invalid("type must be one of: receive, expired, damaged, internal")
+	}
+
+	if data.Qty <= 0 {
+		return nil, invalid("qty must be positive")
+	}
+
+	stockID := strings.TrimSpace(data.StockID)
+	if err := checkRequiredUUID("stockId", stockID); err != nil {
+		return nil, err
+	}
+
+	employeeID := strings.TrimSpace(data.EmployeeID)
+	if err := checkRequiredUUID("employeeId", employeeID); err != nil {
+		return nil, err
+	}
+
+	var selectBranchId string
+	if userRole == "admin" {
+		branchIdCheck := strings.TrimSpace(data.BranchID)
+		if err := checkRequiredUUID("branchId", branchIdCheck); err != nil {
+			return nil, err
+		}
+		selectBranchId = branchIdCheck
+	} else {
+		if branchId == "" {
+			return nil, errBranchRequired
+		}
+		selectBranchId = branchId
+	}
+
+	foundStock, err := s.stockRepository.FindStockById(ctx, stockID) // ไม่รวมสินค้าที่ถูก soft delete
+	if err != nil {
+		return nil, err
+	}
+	if foundStock == nil {
+		return nil, invalid("stockId not found")
+	}
+
+	foundBranch, err := s.branchRepository.FindBranchById(ctx, selectBranchId)
+	if err != nil {
+		return nil, err
+	}
+	if foundBranch == nil {
+		return nil, invalid("branchId not found")
+	}
+	if !foundBranch.IsActive {
+		return nil, invalid("branch is not active")
+	}
+
+	foundEmployee, err := s.employeeRepository.FindEmployeeById(ctx, employeeID)
+	if err != nil {
+		return nil, err
+	}
+	if foundEmployee == nil {
+		return nil, invalid("employeeId not found")
+	}
+	if !foundEmployee.IsActive {
+		return nil, invalid("employee is not active")
+	}
+
+	qtyChange := data.Qty * sign
+
+	var note *string
+	if n := strings.TrimSpace(data.Note); n != "" {
+		note = &n
+	}
+
+	stockLog := &models.StockLog{
+		LogType:    logType,
+		StockID:    stockID,
+		BranchID:   selectBranchId,
+		EmployeeID: employeeID,
+		QtyChange:  qtyChange,
+		Note:       note,
+	}
+
+	if err := s.repository.CreateStockLog(ctx, stockLog); err != nil {
+		return nil, err
+	}
+	return stockLog, nil
+}
+
 // checkOptionalUUID ว่างผ่าน ถ้ามีค่าต้องเป็น UUID
 func checkOptionalUUID(name, v string) error {
 	if v != "" && !uuidPattern.MatchString(v) {
@@ -244,4 +358,14 @@ func checkOptionalUUID(name, v string) error {
 
 func invalid(format string, args ...any) error {
 	return _package.NewAppError("Invalid request", _package.CodeValidation, fmt.Sprintf(format, args...))
+}
+
+func checkRequiredUUID(name, v string) error {
+	if v == "" {
+		return invalid("%s is required", name)
+	}
+	if !uuidPattern.MatchString(v) {
+		return invalid("%s must be a valid UUID", name)
+	}
+	return nil
 }

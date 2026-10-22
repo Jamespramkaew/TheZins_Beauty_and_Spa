@@ -8,10 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
+	"backend/internal/branch"
+	"backend/internal/employee"
 	"backend/internal/models"
+	"backend/internal/stock"
 	stocklog "backend/internal/stock-log"
 	_package "backend/package"
 
@@ -29,7 +33,7 @@ import (
 // ---------- helpers ----------
 
 func slSvc(tx *gorm.DB) stocklog.Service {
-	return stocklog.NewService(stocklog.NewRepository(tx))
+	return stocklog.NewService(stocklog.NewRepository(tx), stock.NewRepository(tx), branch.NewRepository(tx), employee.NewRepository(tx))
 }
 
 func slQuantities(t *testing.T, svc stocklog.Service, q stocklog.GetAllStockQuantitiesQuery) ([]stocklog.StockQuantity, _package.PageMeta) {
@@ -569,6 +573,7 @@ func slApp(tx *gorm.DB, role, branchID string) *fiber.App {
 	})
 	app.Get("/stock-logs/quantities", h.GetAllStockQuantities)
 	app.Get("/stock-logs", h.GetStockLogsByBranchId)
+	app.Post("/stock-logs", h.AddStockLogMovement)
 	return app
 }
 
@@ -668,3 +673,336 @@ func TestStockLog_HTTP_BranchUserWithoutBranchReturns403(t *testing.T) {
 	status, _ := slGet(t, slApp(tx, "branch", ""), "/stock-logs")
 	assert.Equal(t, http.StatusForbidden, status)
 }
+
+// ---------- POST /stock-logs (receive / expired / damaged / internal) ----------
+
+func slPost(t *testing.T, app *fiber.App, path string, payload map[string]any) (int, map[string]any) {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	out, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(out, &body), "response ต้องเป็น JSON: %s", out)
+	return resp.StatusCode, body
+}
+
+func slMovement(stockID, branchID, employeeID, logType string, qty int) map[string]any {
+	return map[string]any{"type": logType, "stockId": stockID, "branchId": branchID, "employeeId": employeeID, "qty": qty}
+}
+
+func slBalance(t *testing.T, tx *gorm.DB, stockID, branchID string) int {
+	t.Helper()
+	var sum int
+	require.NoError(t, tx.Raw("SELECT COALESCE(SUM(qty_change), 0) FROM stock_logs WHERE stock_id = ? AND branch_id = ?", stockID, branchID).Scan(&sum).Error)
+	return sum
+}
+
+func slCountLogs(t *testing.T, tx *gorm.DB, stockID string) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, tx.Model(&models.StockLog{}).Where("stock_id = ?", stockID).Count(&n).Error)
+	return n
+}
+
+func TestStockLog_Add_SignAndPersistedRow(t *testing.T) {
+	tests := []struct {
+		logType string
+		want    int
+	}{
+		{"receive", 7},
+		{"expired", -7},
+		{"damaged", -7},
+		{"internal", -7},
+	}
+	for _, tt := range tests {
+		t.Run(tt.logType, func(t *testing.T) {
+			tx := newTx(t)
+			svc := slSvc(tx)
+			s := slStock(t, tx, uniqueName("itest-add-sign"), 0)
+			branch := mkBranch(t, tx)
+			emp := mkEmployee(t, tx, branch.ID, "manager")
+
+			got, err := svc.AddStockLogMovement(ctx, "admin", "", stocklog.AddStockLogMovementRequest{
+				Type: tt.logType, BranchID: branch.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: 7,
+			})
+			require.NoError(t, err)
+			assert.NotEmpty(t, got.ID, "GORM ต้องเติม id กลับมา")
+			assert.False(t, got.CreatedAt.IsZero(), "GORM ต้องเติม created_at กลับมา")
+
+			// อ่านจาก DB จริง ไม่ใช่เชื่อค่าที่คืนมา
+			var saved models.StockLog
+			require.NoError(t, tx.First(&saved, "id = ?", got.ID).Error)
+			assert.Equal(t, tt.logType, saved.LogType)
+			assert.Equal(t, tt.want, saved.QtyChange)
+			assert.Equal(t, s.ID, saved.StockID)
+			assert.Equal(t, branch.ID, saved.BranchID)
+			assert.Equal(t, emp.ID, saved.EmployeeID)
+			assert.Nil(t, saved.Note, "ไม่ส่ง note = NULL")
+			assert.Nil(t, saved.OrderItemID)
+			assert.Nil(t, saved.UsageID)
+		})
+	}
+}
+
+func TestStockLog_Add_NoteStoredTrimmedOrNull(t *testing.T) {
+	tx := newTx(t)
+	svc := slSvc(tx)
+	s := slStock(t, tx, uniqueName("itest-add-note"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+
+	withNote, err := svc.AddStockLogMovement(ctx, "admin", "", stocklog.AddStockLogMovementRequest{
+		Type: "damaged", BranchID: branch.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: 1, Note: "  ตกแตก  ",
+	})
+	require.NoError(t, err)
+	blankNote, err := svc.AddStockLogMovement(ctx, "admin", "", stocklog.AddStockLogMovementRequest{
+		Type: "damaged", BranchID: branch.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: 1, Note: "   ",
+	})
+	require.NoError(t, err)
+
+	var a, b models.StockLog
+	require.NoError(t, tx.First(&a, "id = ?", withNote.ID).Error)
+	require.NoError(t, tx.First(&b, "id = ?", blankNote.ID).Error)
+	require.NotNil(t, a.Note)
+	assert.Equal(t, "ตกแตก", *a.Note)
+	assert.Nil(t, b.Note, "note ว่างต้องเป็น NULL ไม่ใช่ string ว่าง")
+}
+
+func TestStockLog_Add_AffectsQuantities(t *testing.T) {
+	tx := newTx(t)
+	svc := slSvc(tx)
+	s := slStock(t, tx, uniqueName("itest-add-qty"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+
+	for _, m := range []struct {
+		logType string
+		qty     int
+	}{{"receive", 20}, {"expired", 3}, {"damaged", 2}, {"internal", 1}} {
+		_, err := svc.AddStockLogMovement(ctx, "admin", "", stocklog.AddStockLogMovementRequest{
+			Type: m.logType, BranchID: branch.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: m.qty,
+		})
+		require.NoError(t, err)
+	}
+
+	items, _ := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{BranchID: branch.ID, Search: s.Name})
+	require.Len(t, items, 1)
+	assert.Equal(t, 20-3-2-1, items[0].Quantity, "ยอดคงเหลือ = SUM(qty_change)")
+
+	logs, meta := slLogs(t, svc, stocklog.GetAllStockLogsQuery{StockID: s.ID, BranchID: branch.ID})
+	assert.EqualValues(t, 4, meta.Total)
+	assert.Len(t, logs, 4)
+}
+
+func TestStockLog_Add_BranchUserForcedToOwnBranch(t *testing.T) {
+	tx := newTx(t)
+	svc := slSvc(tx)
+	s := slStock(t, tx, uniqueName("itest-add-branch"), 0)
+	own := mkBranch(t, tx)
+	other := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, own.ID, "manager")
+
+	// บัญชีสาขาพยายามลงของเข้าสาขาอื่น ต้องถูกบังคับเป็นสาขาตัวเอง
+	got, err := svc.AddStockLogMovement(ctx, "branch", own.ID, stocklog.AddStockLogMovementRequest{
+		Type: "receive", BranchID: other.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: 4,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, own.ID, got.BranchID)
+	assert.Equal(t, 4, slBalance(t, tx, s.ID, own.ID))
+	assert.Equal(t, 0, slBalance(t, tx, s.ID, other.ID), "สาขาอื่นต้องไม่ถูกแตะ")
+}
+
+func TestStockLog_Add_InvalidInputWritesNothing(t *testing.T) {
+	tx := newTx(t)
+	svc := slSvc(tx)
+	s := slStock(t, tx, uniqueName("itest-add-invalid"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+
+	base := func() stocklog.AddStockLogMovementRequest {
+		return stocklog.AddStockLogMovementRequest{Type: "receive", BranchID: branch.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: 5}
+	}
+	tests := []struct {
+		name   string
+		mutate func(r *stocklog.AddStockLogMovementRequest)
+	}{
+		{"type ไม่รู้จัก", func(r *stocklog.AddStockLogMovementRequest) { r.Type = "steal" }},
+		{"type sale ห้ามในเส้นนี้", func(r *stocklog.AddStockLogMovementRequest) { r.Type = "sale" }},
+		{"qty 0", func(r *stocklog.AddStockLogMovementRequest) { r.Qty = 0 }},
+		{"qty ติดลบ", func(r *stocklog.AddStockLogMovementRequest) { r.Qty = -1 }},
+		{"stockId ว่าง", func(r *stocklog.AddStockLogMovementRequest) { r.StockID = "" }},
+		{"employeeId ไม่ใช่ UUID", func(r *stocklog.AddStockLogMovementRequest) { r.EmployeeID = "abc" }},
+		{"branchId ว่าง (admin)", func(r *stocklog.AddStockLogMovementRequest) { r.BranchID = "" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := base()
+			tt.mutate(&req)
+			got, err := svc.AddStockLogMovement(ctx, "admin", "", req)
+
+			assert.Nil(t, got)
+			var appErr *_package.AppError
+			require.ErrorAs(t, err, &appErr)
+			assert.Equal(t, _package.CodeValidation, appErr.Code)
+		})
+	}
+	assert.EqualValues(t, 0, slCountLogs(t, tx, s.ID), "validate ไม่ผ่านต้องไม่มีแถวถูกเขียน")
+}
+
+func TestStockLog_HTTP_AddReturns201WithModelShape(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-add"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+
+	payload := slMovement(s.ID, branch.ID, emp.ID, "receive", 12)
+	payload["note"] = "รับของจาก supplier"
+	status, body := slPost(t, slApp(tx, "admin", ""), "/stock-logs", payload)
+
+	require.Equal(t, http.StatusCreated, status)
+	assert.Equal(t, true, body["success"])
+	data := body["data"].(map[string]any)
+	assert.NotEmpty(t, data["id"])
+	assert.Equal(t, "receive", data["log_type"])
+	assert.EqualValues(t, 12, data["qty_change"])
+	assert.Equal(t, s.ID, data["stock_id"])
+	assert.Equal(t, branch.ID, data["branch_id"])
+	assert.Equal(t, emp.ID, data["employee_id"])
+	assert.Equal(t, "รับของจาก supplier", data["note"])
+	assert.NotEmpty(t, data["created_at"])
+
+	// ยืนยันว่าเห็นในเส้น GET จริง
+	status, listed := slGet(t, slApp(tx, "admin", ""), "/stock-logs?stockId="+s.ID)
+	require.Equal(t, http.StatusOK, status)
+	assert.Len(t, listed["data"].([]any), 1)
+}
+
+func TestStockLog_HTTP_AddInvalidInputReturns400(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-add-bad"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+	app := slApp(tx, "admin", "")
+
+	tests := []struct {
+		name    string
+		payload map[string]any
+	}{
+		{"type ผิด", slMovement(s.ID, branch.ID, emp.ID, "steal", 1)},
+		{"qty 0", slMovement(s.ID, branch.ID, emp.ID, "receive", 0)},
+		{"qty ติดลบ", slMovement(s.ID, branch.ID, emp.ID, "damaged", -3)},
+		{"stockId ไม่ใช่ UUID", slMovement("abc", branch.ID, emp.ID, "receive", 1)},
+		{"employeeId ว่าง", slMovement(s.ID, branch.ID, "", "receive", 1)},
+		{"qty เป็น string (bind ไม่ได้)", map[string]any{"type": "receive", "stockId": s.ID, "branchId": branch.ID, "employeeId": emp.ID, "qty": "ten"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status, body := slPost(t, app, "/stock-logs", tt.payload)
+			assert.Equal(t, http.StatusBadRequest, status)
+			assert.Equal(t, false, body["success"])
+		})
+	}
+	assert.EqualValues(t, 0, slCountLogs(t, tx, s.ID), "request ที่ผิดต้องไม่มีแถวถูกเขียน")
+}
+
+func TestStockLog_HTTP_AddBranchUserWithoutBranchReturns403(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-add-403"), 0)
+	status, _ := slPost(t, slApp(tx, "branch", ""), "/stock-logs", slMovement(s.ID, validUUID, validUUID, "receive", 1))
+	assert.Equal(t, http.StatusForbidden, status)
+}
+
+func TestStockLog_HTTP_AddUnknownStockReturns400(t *testing.T) {
+	tx := newTx(t)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+
+	status, body := slPost(t, slApp(tx, "admin", ""), "/stock-logs", slMovement(validUUID, branch.ID, emp.ID, "receive", 1))
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Equal(t, false, body["success"])
+}
+
+func TestStockLog_HTTP_AddSoftDeletedStockReturns400(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-add-deleted"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+	require.NoError(t, tx.Delete(&s).Error)
+
+	status, _ := slPost(t, slApp(tx, "admin", ""), "/stock-logs", slMovement(s.ID, branch.ID, emp.ID, "receive", 1))
+	assert.Equal(t, http.StatusBadRequest, status, "สินค้าที่ถูกลบไปแล้วห้ามลงสต็อก")
+	assert.EqualValues(t, 0, slCountLogs(t, tx, s.ID))
+}
+
+func TestStockLog_HTTP_AddUnknownBranchReturns400(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-add-nobranch"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+
+	status, _ := slPost(t, slApp(tx, "admin", ""), "/stock-logs", slMovement(s.ID, validUUID, emp.ID, "receive", 1))
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.EqualValues(t, 0, slCountLogs(t, tx, s.ID))
+}
+
+func TestStockLog_HTTP_AddInactiveBranchReturns400(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-add-offbranch"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+	slSetInactive(t, tx, &models.Branch{}, branch.ID)
+
+	status, _ := slPost(t, slApp(tx, "admin", ""), "/stock-logs", slMovement(s.ID, branch.ID, emp.ID, "receive", 1))
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.EqualValues(t, 0, slCountLogs(t, tx, s.ID))
+}
+
+func TestStockLog_HTTP_AddUnknownEmployeeReturns400(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-add-noemp"), 0)
+	branch := mkBranch(t, tx)
+
+	status, body := slPost(t, slApp(tx, "admin", ""), "/stock-logs", slMovement(s.ID, branch.ID, validUUID, "receive", 1))
+	assert.Equal(t, http.StatusBadRequest, status, "ต้องไม่ใช่ 500 จาก FK")
+	assert.Equal(t, false, body["success"])
+	assert.EqualValues(t, 0, slCountLogs(t, tx, s.ID))
+}
+
+func TestStockLog_HTTP_AddInactiveEmployeeReturns400(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-add-offemp"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+	slSetInactive(t, tx, &models.Employee{}, emp.ID)
+
+	status, _ := slPost(t, slApp(tx, "admin", ""), "/stock-logs", slMovement(s.ID, branch.ID, emp.ID, "receive", 1))
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.EqualValues(t, 0, slCountLogs(t, tx, s.ID))
+}
+
+func TestStockLog_HTTP_AddEmployeeFromOtherBranchReturns400(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-add-xbranch"), 0)
+	mine, theirs := mkBranch(t, tx), mkBranch(t, tx)
+	outsider := mkEmployee(t, tx, theirs.ID, "manager")
+
+	// admin ลงสาขา mine แต่ใช้พนักงานของ theirs
+	status, _ := slPost(t, slApp(tx, "admin", ""), "/stock-logs", slMovement(s.ID, mine.ID, outsider.ID, "receive", 1))
+	assert.Equal(t, http.StatusBadRequest, status)
+
+	// บัญชีสาขา mine พยายามอ้างพนักงานสาขาอื่น
+	status, _ = slPost(t, slApp(tx, "branch", mine.ID), "/stock-logs", slMovement(s.ID, theirs.ID, outsider.ID, "receive", 1))
+	assert.Equal(t, http.StatusBadRequest, status)
+
+	assert.EqualValues(t, 0, slCountLogs(t, tx, s.ID))
+}
+
+// UUID รูปแบบถูกต้องแต่ไม่มีอยู่จริงใน DB
+const validUUID = "8f64ee52-1111-4222-8333-944455556666"
