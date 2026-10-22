@@ -26,7 +26,10 @@ type mockService struct {
 	quantities func(ctx context.Context, role, branch string, q GetAllStockQuantitiesQuery) ([]StockQuantity, _package.PageMeta, error)
 	logs       func(ctx context.Context, role, branch string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error)
 	add        func(ctx context.Context, role, branch string, data AddStockLogMovementRequest) (*models.StockLog, error)
+	transfer   func(ctx context.Context, role, branch string, data TransferStockLogRequest) error
 
+	transferCalls        int
+	lastTransferRequest  TransferStockLogRequest
 	addCalls             int
 	lastAddRequest       AddStockLogMovementRequest
 	lastRole, lastBranch string
@@ -49,6 +52,15 @@ func (m *mockService) AddStockLogMovement(ctx context.Context, role, branch stri
 		return m.add(ctx, role, branch, data)
 	}
 	return &models.StockLog{ID: "new-log", LogType: data.Type, StockID: data.StockID, BranchID: data.BranchID, EmployeeID: data.EmployeeID}, nil
+}
+
+func (m *mockService) TransferStockLog(ctx context.Context, role, branch string, data TransferStockLogRequest) error {
+	m.transferCalls++
+	m.lastRole, m.lastBranch, m.lastTransferRequest = role, branch, data
+	if m.transfer != nil {
+		return m.transfer(ctx, role, branch, data)
+	}
+	return nil
 }
 
 func (m *mockService) GetStockLogsByBranchId(ctx context.Context, role, branch string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error) {
@@ -74,6 +86,7 @@ func newTestApp(svc Service, role, branchID string) *fiber.App {
 	app.Get("/stock-logs/quantities", h.GetAllStockQuantities)
 	app.Get("/stock-logs", h.GetStockLogsByBranchId)
 	app.Post("/stock-logs", h.AddStockLogMovement)
+	app.Post("/stock-logs/transfer", h.TransferStockLog)
 	return app
 }
 

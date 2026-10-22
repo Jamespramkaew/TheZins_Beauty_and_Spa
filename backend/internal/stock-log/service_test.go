@@ -33,14 +33,48 @@ type mockRepo struct {
 	quantities func(ctx context.Context, f quantityFilter) ([]StockQuantity, int64, error)
 	logs       func(ctx context.Context, f stockLogFilter) ([]models.StockLog, int64, error)
 
-	create func(ctx context.Context, log *models.StockLog) error
+	create     func(ctx context.Context, log *models.StockLog) error
+	transfer   func(ctx context.Context, data TransferStockLogRequest, logType string) error
+	stockQty   func(ctx context.Context, stockId, branchId string) (int, error)
+	stockQtyIs *int // ยอดคงเหลือที่ mock คืน (nil = มีเหลือเฟือ)
 
-	quantityCalls int
-	logCalls      int
-	createCalls   int
-	lastQuantity  quantityFilter
-	lastLog       stockLogFilter
-	lastCreated   *models.StockLog
+	quantityCalls     int
+	logCalls          int
+	createCalls       int
+	transferCalls     int
+	stockQtyCalls     int
+	lastQuantity      quantityFilter
+	lastLog           stockLogFilter
+	lastCreated       *models.StockLog
+	lastTransfer      TransferStockLogRequest
+	lastTransferType  string
+	lastStockQtyStock string
+	lastStockQtyBr    string
+}
+
+// ยอดคงเหลือเริ่มต้นของ mock: มากพอที่ test ที่ไม่เกี่ยวกับยอดจะไม่โดนปฏิเสธ
+const plentyOfStock = 1_000_000
+
+func (m *mockRepo) TransferStockLog(ctx context.Context, data TransferStockLogRequest, logType string) error {
+	m.transferCalls++
+	m.lastTransfer = data
+	m.lastTransferType = logType
+	if m.transfer != nil {
+		return m.transfer(ctx, data, logType)
+	}
+	return nil
+}
+
+func (m *mockRepo) GetStockQuantity(ctx context.Context, stockId string, branchId string) (int, error) {
+	m.stockQtyCalls++
+	m.lastStockQtyStock, m.lastStockQtyBr = stockId, branchId
+	if m.stockQty != nil {
+		return m.stockQty(ctx, stockId, branchId)
+	}
+	if m.stockQtyIs != nil {
+		return *m.stockQtyIs, nil
+	}
+	return plentyOfStock, nil
 }
 
 func (m *mockRepo) GetAllStockQuantities(ctx context.Context, f quantityFilter) ([]StockQuantity, int64, error) {
