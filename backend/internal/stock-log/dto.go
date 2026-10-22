@@ -107,12 +107,14 @@ func toStockLogResponse(l models.StockLog) StockLogResponse {
 	return r
 }
 
-// AddStockLogMovementRequest = request body ของ POST /api/stock-logs (receive/expired/damaged/internal)
+// AddStockLogMovementRequest = request body ของ POST /api/stock-logs
 type AddStockLogMovementRequest struct {
-	Type       string `json:"type"`
-	BranchID   string `json:"branchId"`
-	StockID    string `json:"stockId"`
-	EmployeeID string `json:"employeeId"`
-	Qty        int    `json:"qty"`
-	Note       string `json:"note"`
+	Type       string `json:"type"`       // receive | expired | damaged | internal | adjust
+	BranchID   string `json:"branchId"`   // admin ต้องส่ง ส่วนบัญชีสาขาถูกบังคับเป็นสาขาใน session
+	StockID    string `json:"stockId"`    // ต้องมีอยู่จริงและไม่ถูกลบ
+	EmployeeID string `json:"employeeId"` // พนักงาน active ของสาขาเดียวกับรายการ
+	// receive/expired/damaged/internal: ต้องเป็นบวก server ใส่เครื่องหมายให้
+	// adjust: ส่งพร้อมเครื่องหมาย (+ เพิ่ม / - ลด) ห้ามเป็น 0
+	Qty  int    `json:"qty"`
+	Note string `json:"note"` // adjust บังคับ ชนิดอื่นไม่บังคับ (ว่าง = NULL)
 }

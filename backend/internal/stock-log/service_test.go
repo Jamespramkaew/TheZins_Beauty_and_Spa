@@ -749,7 +749,7 @@ func TestAdd_ValidationReturns400AndNeverReachesRepo(t *testing.T) {
 		{"type เป็นช่องว่างล้วน", func(r *AddStockLogMovementRequest) { r.Type = "   " }, "type"},
 		{"type ไม่รู้จัก", func(r *AddStockLogMovementRequest) { r.Type = "steal" }, "type"},
 		{"type ถูกต้องใน GET แต่ห้ามในเส้นนี้: sale", func(r *AddStockLogMovementRequest) { r.Type = "sale" }, "type"},
-		{"type ห้ามในเส้นนี้: adjust", func(r *AddStockLogMovementRequest) { r.Type = "adjust" }, "type"},
+		{"type ห้ามในเส้นนี้: count_diff", func(r *AddStockLogMovementRequest) { r.Type = "count_diff" }, "type"},
 		{"type ห้ามในเส้นนี้: transfer", func(r *AddStockLogMovementRequest) { r.Type = "transfer" }, "type"},
 		{"qty เป็น 0", func(r *AddStockLogMovementRequest) { r.Qty = 0 }, "qty"},
 		{"qty ติดลบ", func(r *AddStockLogMovementRequest) { r.Qty = -5 }, "qty"},
@@ -980,11 +980,82 @@ func TestAdd_RepoErrorPropagates(t *testing.T) {
 	assert.Nil(t, got, "ห้ามคืนแถวที่ยังไม่ได้บันทึก")
 }
 
-func TestMovementSign_OnlyManualTypes(t *testing.T) {
-	// เส้น POST นี้รับแค่ 4 ชนิด ชนิดอื่น (sale/use/open/transfer/adjust/count_diff) ต้องมาจากที่อื่น
-	assert.Equal(t, map[string]int{"receive": 1, "expired": -1, "damaged": -1, "internal": -1}, movementSign)
-	for lt := range movementSign {
+func TestMovementRules_OnlyManualTypes(t *testing.T) {
+	// เส้น POST นี้รับแค่ 5 ชนิด ชนิดอื่น (sale/use/open/transfer/count_diff) ต้องมาจากที่อื่น
+	assert.Equal(t, map[string]movementRule{
+		"receive":  {sign: 1},
+		"expired":  {sign: -1},
+		"damaged":  {sign: -1},
+		"internal": {sign: -1},
+		"adjust":   {sign: 0, noteRequired: true},
+	}, movementRules)
+	for lt := range movementRules {
 		assert.True(t, validLogTypes[lt], "%s ต้องอยู่ใน CHECK constraint ของ stock_logs", lt)
+		assert.Contains(t, movementTypesText, lt, "ข้อความ error ต้องบอกชนิด %s", lt)
+	}
+}
+
+// ---------- AddStockLogMovement: adjust ----------
+
+func validAdjust(qty int) AddStockLogMovementRequest {
+	r := validMovement()
+	r.Type = "adjust"
+	r.Qty = qty
+	r.Note = "คีย์รับของเกินไป"
+	return r
+}
+
+func TestAdd_Adjust_KeepsClientSign(t *testing.T) {
+	for _, qty := range []int{7, -7} {
+		repo := &mockRepo{}
+		got, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).
+			AddStockLogMovement(context.Background(), "admin", "", validAdjust(qty))
+		require.NoError(t, err)
+		assert.Equal(t, "adjust", got.LogType)
+		assert.Equal(t, qty, got.QtyChange, "adjust ต้องใช้เครื่องหมายที่ส่งมา ไม่คูณ sign")
+		require.NotNil(t, got.Note)
+		assert.Equal(t, "คีย์รับของเกินไป", *got.Note)
+		assert.Equal(t, 1, repo.createCalls)
+	}
+}
+
+func TestAdd_Adjust_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(r *AddStockLogMovementRequest)
+		detail string
+	}{
+		{"qty เป็น 0", func(r *AddStockLogMovementRequest) { r.Qty = 0 }, "qty must not be zero"},
+		{"ไม่มี note", func(r *AddStockLogMovementRequest) { r.Note = "" }, "note is required for adjust"},
+		{"note เว้นวรรคล้วน", func(r *AddStockLogMovementRequest) { r.Note = "   " }, "note is required for adjust"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &mockRepo{}
+			stocks := &mockStockRepo{}
+			req := validAdjust(5)
+			tt.mutate(&req)
+
+			got, err := NewService(repo, stocks, &mockBranchRepo{}, &mockEmployeeRepo{}).
+				AddStockLogMovement(context.Background(), "admin", "", req)
+			appErr := requireAppError(t, err, _package.CodeValidation)
+			assert.Equal(t, tt.detail, appErr.Detail)
+			assert.Nil(t, got)
+			assert.Zero(t, repo.createCalls)
+			assert.Zero(t, stocks.calls, "ตรวจรูปแบบไม่ผ่านต้องไม่ query DB")
+		})
+	}
+}
+
+func TestAdd_NoteNotRequiredForOtherTypes(t *testing.T) {
+	for _, lt := range []string{"receive", "expired", "damaged", "internal"} {
+		req := validMovement()
+		req.Type = lt
+		req.Note = ""
+		got, err := NewService(&mockRepo{}, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).
+			AddStockLogMovement(context.Background(), "admin", "", req)
+		require.NoError(t, err, lt)
+		assert.Nil(t, got.Note, lt)
 	}
 }
 

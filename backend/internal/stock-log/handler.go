@@ -63,7 +63,7 @@ func (h *Handler) GetStockLogsByBranchId(c fiber.Ctx) error {
 		_package.SuccessPagedResponse("Stock logs fetched successfully", logs, meta))
 }
 
-// AddStockLogMovement POST /api/stock-logs
+// AddStockLogMovement POST /api/stock-logs (receive / expired / damaged / internal / adjust)
 func (h *Handler) AddStockLogMovement(c fiber.Ctx) error {
 
 	userRole, _ := c.Locals("role").(string)
@@ -81,5 +81,4 @@ func (h *Handler) AddStockLogMovement(c fiber.Ctx) error {
 
 	return _package.SendJSON(c, fiber.StatusCreated,
 		_package.SuccessResponse("Stock log movement added successfully", stockLog))
-
 }

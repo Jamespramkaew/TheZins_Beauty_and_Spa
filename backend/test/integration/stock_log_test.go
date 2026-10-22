@@ -1004,5 +1004,61 @@ func TestStockLog_HTTP_AddEmployeeFromOtherBranchReturns400(t *testing.T) {
 	assert.EqualValues(t, 0, slCountLogs(t, tx, s.ID))
 }
 
+// ---------- POST /stock-logs: adjust ----------
+
+func TestStockLog_HTTP_AdjustKeepsSignAndRequiresNote(t *testing.T) {
+	tx := newTx(t)
+	s := slStock(t, tx, uniqueName("itest-h-adjust"), 0)
+	branch := mkBranch(t, tx)
+	emp := mkEmployee(t, tx, branch.ID, "manager")
+	app := slApp(tx, "admin", "")
+
+	receive := slMovement(s.ID, branch.ID, emp.ID, "receive", 10)
+	status, _ := slPost(t, app, "/stock-logs", receive)
+	require.Equal(t, http.StatusCreated, status)
+
+	// คีย์รับเกินมา 3 ชิ้น แก้ด้วย adjust -3
+	down := slMovement(s.ID, branch.ID, emp.ID, "adjust", -3)
+	down["note"] = "คีย์รับของเกิน"
+	status, body := slPost(t, app, "/stock-logs", down)
+	require.Equal(t, http.StatusCreated, status)
+	assert.EqualValues(t, -3, body["data"].(map[string]any)["qty_change"])
+	assert.Equal(t, "คีย์รับของเกิน", body["data"].(map[string]any)["note"])
+
+	// adjust บวกได้ด้วย
+	up := slMovement(s.ID, branch.ID, emp.ID, "adjust", 2)
+	up["note"] = "นับเจอเพิ่ม"
+	status, _ = slPost(t, app, "/stock-logs", up)
+	require.Equal(t, http.StatusCreated, status)
+
+	assert.Equal(t, 10-3+2, slBalance(t, tx, s.ID, branch.ID))
+
+	// ไม่มี note / qty 0 ต้องไม่ถูกบันทึก
+	noNote := slMovement(s.ID, branch.ID, emp.ID, "adjust", -1)
+	status, _ = slPost(t, app, "/stock-logs", noNote)
+	assert.Equal(t, http.StatusBadRequest, status)
+
+	zero := slMovement(s.ID, branch.ID, emp.ID, "adjust", 0)
+	zero["note"] = "x"
+	status, _ = slPost(t, app, "/stock-logs", zero)
+	assert.Equal(t, http.StatusBadRequest, status)
+
+	assert.EqualValues(t, 3, slCountLogs(t, tx, s.ID))
+}
+
+func TestStockLog_HTTP_NoSeparateAdjustmentRoute(t *testing.T) {
+	tx := newTx(t)
+	app := fiber.New()
+	stocklog.NewHandler(slSvc(tx)).RegisterRoutes(app.Group("/api"))
+
+	for _, path := range []string{"/api/stock-logs/adjustment", "/api/stock-logs/adjustments"} {
+		resp, err := app.Test(httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}")))
+		require.NoError(t, err)
+		resp.Body.Close()
+		assert.NotEqual(t, http.StatusCreated, resp.StatusCode, path)
+		assert.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusUnauthorized}, resp.StatusCode, path)
+	}
+}
+
 // UUID รูปแบบถูกต้องแต่ไม่มีอยู่จริงใน DB
 const validUUID = "8f64ee52-1111-4222-8333-944455556666"
