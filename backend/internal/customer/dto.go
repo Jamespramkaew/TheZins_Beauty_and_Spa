@@ -22,3 +22,8 @@ type UpdateCustomer struct {
 	CitizenID *string `json:"citizen_id"`
 	BDay      *string `json:"b_day"`
 }
+
+// ChangeTier รับ body ของ POST /api/customers/:id/tier
+type ChangeTier struct {
+	Tier string `json:"tier"` // general หรือ vip
+}

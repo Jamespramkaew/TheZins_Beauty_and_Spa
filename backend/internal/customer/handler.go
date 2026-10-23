@@ -1,11 +1,15 @@
 package customer
 
 import (
+	"backend/internal/currentuser"
 	"backend/internal/middleware"
 	"backend/package"
 
 	"github.com/gofiber/fiber/v3"
 )
+
+// errLoginRequired ตอบ 401 เมื่อไม่มีผู้ใช้ (ยังไม่ login)
+var errLoginRequired = _package.NewAppError("Login required", _package.CodeUnauthorized, "")
 
 type Handler struct {
 	service Service
@@ -21,6 +25,8 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	customers.Get("/:id", h.GetByID)
 	customers.Post("", h.Create)
 	customers.Patch("/:id", h.Update)
+	customers.Post("/:id/tier", h.ChangeTier)
+	customers.Get("/:id/tier-changes", h.ListTierChanges)
 }
 
 // Search GET /api/customers?q=
@@ -71,4 +77,35 @@ func (h *Handler) Update(c fiber.Ctx) error {
 	}
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessResponse("Customer updated successfully", customer))
+}
+
+// ChangeTier POST /api/customers/:id/tier
+func (h *Handler) ChangeTier(c fiber.Ctx) error {
+	// ต้องรู้ว่าใครเปลี่ยน (AuthMiddleware ตอบ 401 ไปแล้ว ตรงนี้กันพลาดอีกชั้น)
+	user, ok := currentuser.FromCtx(c)
+	if !ok {
+		return _package.SendError(c, errLoginRequired, "customer")
+	}
+
+	var req ChangeTier
+	if err := c.Bind().Body(&req); err != nil {
+		return _package.SendBadBody(c, err)
+	}
+
+	customer, err := h.service.ChangeTier(c.Context(), c.Params("id"), user.ID, req)
+	if err != nil {
+		return _package.SendError(c, err, "customer")
+	}
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessResponse("Customer tier changed successfully", customer))
+}
+
+// ListTierChanges GET /api/customers/:id/tier-changes
+func (h *Handler) ListTierChanges(c fiber.Ctx) error {
+	changes, err := h.service.ListTierChanges(c.Context(), c.Params("id"))
+	if err != nil {
+		return _package.SendError(c, err, "customer")
+	}
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessResponse("Tier changes retrieved successfully", changes))
 }

@@ -34,6 +34,8 @@ type Service interface {
 	GetByID(ctx context.Context, id string) (*models.Customer, error)
 	Create(ctx context.Context, req CreateCustomer) (*models.Customer, error)
 	Update(ctx context.Context, id string, req UpdateCustomer) (*models.Customer, error)
+	ChangeTier(ctx context.Context, id, changedBy string, req ChangeTier) (*models.Customer, error)
+	ListTierChanges(ctx context.Context, id string) ([]TierChangeRow, error)
 }
 
 type service struct {
@@ -152,6 +154,33 @@ func (s *service) Update(ctx context.Context, id string, req UpdateCustomer) (*m
 
 	// ดึงใหม่เพื่อส่งข้อมูลหลังแก้กลับไป
 	return s.repository.GetByID(ctx, id)
+}
+
+// ChangeTier เปลี่ยนระดับลูกค้า changedBy = id ของบัญชีที่ login อยู่ (มาจาก handler ไม่ได้มาจาก body)
+func (s *service) ChangeTier(ctx context.Context, id, changedBy string, req ChangeTier) (*models.Customer, error) {
+	if !uuidPattern.MatchString(id) {
+		return nil, ErrNotFound
+	}
+
+	tier := strings.TrimSpace(req.Tier)
+	if tier != "general" && tier != "vip" {
+		return nil, invalid("tier must be general or vip")
+	}
+
+	customer, err := s.repository.ChangeTier(ctx, id, tier, changedBy)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return customer, err
+}
+
+// ListTierChanges ประวัติการเปลี่ยนระดับ ใหม่ → เก่า
+func (s *service) ListTierChanges(ctx context.Context, id string) ([]TierChangeRow, error) {
+	// เช็คก่อนว่ามีลูกค้าคนนี้ ไม่งั้นลูกค้าที่ไม่มีอยู่จริงจะได้ [] เหมือนลูกค้าที่ยังไม่เคยเปลี่ยนระดับ
+	if _, err := s.GetByID(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.repository.ListTierChanges(ctx, id)
 }
 
 // checkText ตรวจว่าต้องมีค่าไหม และยาวไม่เกิน maxLen ตัวอักษร
