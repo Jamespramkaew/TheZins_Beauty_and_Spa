@@ -89,7 +89,12 @@ type StockLog struct {
 	OrderItem   *OrderItem    `gorm:"foreignKey:OrderItemID" json:"order_item,omitempty"`
 	UsageID     *string       `gorm:"type:uuid" json:"usage_id"` // ออกเพราะใช้ในบริการ
 	Usage       *ServiceUsage `gorm:"foreignKey:UsageID" json:"usage,omitempty"`
-	CreatedAt   time.Time     `json:"created_at"`
+	Note        *string       `gorm:"type:text" json:"note"` // เหตุผล/หมายเหตุ กรณี adjust หรือ count_diff (adjust และ count_diff ควรกรอกเสมอ) null = ไม่มี
+	// พนักงานที่ทำรายการ (บัญชีสาขาใช้ร่วมกัน จึงระบุตัวคนด้วย employee ไม่ใช่ user)
+	// ค่ามาจาก client จึงต้องตรวจว่าเป็นพนักงานที่ active ของสาขาเดียวกับแถวนี้
+	EmployeeID string    `gorm:"type:uuid;not null" json:"employee_id"`
+	Employee   *Employee `gorm:"foreignKey:EmployeeID" json:"employee,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 func (StockLog) TableName() string { return "stock_logs" }

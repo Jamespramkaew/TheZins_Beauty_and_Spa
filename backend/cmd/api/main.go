@@ -156,6 +156,9 @@ func setupRoute(app *fiber.App, c *container.Container) {
 	// Register Stock Routes
 	c.StockHandler.RegisterRoutes(api)
 
+	// Register Stock Log Routes
+	c.StockLogHandler.RegisterRoutes(api)
+
 	// 404 Handler
 	app.Use(func(c fiber.Ctx) error {
 		return _package.SendJSON(c, fiber.StatusNotFound,

@@ -197,9 +197,24 @@ func mkCourseItem(t *testing.T, tx *gorm.DB, stockID string) models.CourseItem {
 	return ci
 }
 
+func mkEmployee(t *testing.T, tx *gorm.DB, branchID, role string) models.Employee {
+	t.Helper()
+	e := models.Employee{Name: uniqueName("itest-emp"), Role: role, BranchID: branchID, IsActive: true}
+	require.NoError(t, tx.Create(&e).Error)
+	return e
+}
+
+// mkStockLog สร้าง log รับของเข้า +5 โดยพนักงานใหม่ของสาขานั้น (employee_id บังคับ NOT NULL)
 func mkStockLog(t *testing.T, tx *gorm.DB, stockID, branchID string) models.StockLog {
 	t.Helper()
-	l := models.StockLog{StockID: stockID, BranchID: branchID, QtyChange: 5, LogType: "receive"}
+	emp := mkEmployee(t, tx, branchID, "manager")
+	return mkStockLogBy(t, tx, stockID, branchID, emp.ID, "receive", 5)
+}
+
+// mkStockLogBy สร้าง log ตามที่ระบุ (ใช้ในเทสที่ต้องคุมพนักงาน/ชนิด/จำนวนเอง)
+func mkStockLogBy(t *testing.T, tx *gorm.DB, stockID, branchID, employeeID, logType string, qty int) models.StockLog {
+	t.Helper()
+	l := models.StockLog{StockID: stockID, BranchID: branchID, EmployeeID: employeeID, QtyChange: qty, LogType: logType}
 	require.NoError(t, tx.Create(&l).Error)
 	return l
 }
