@@ -224,6 +224,14 @@ func checkEnoughStock(tx *gorm.DB, stockId, branchId string, need int) error {
 // ถ้าแถวใดแถวหนึ่งพัง จะ rollback ทั้งคู่
 func (r *repository) TransferStockLog(ctx context.Context, data TransferStockLogRequest, logType string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// ล็อกแถวสินค้าแล้วเช็คยอดสาขาต้นทางใน transaction เดียวกับการลง 2 แถว (โอนพร้อมกันต้นทางก็ไม่ติดลบ)
+		if err := lockStock(tx, data.StockID); err != nil {
+			return err
+		}
+		if err := checkEnoughStock(tx, data.StockID, data.FromBranchId, data.Qty); err != nil {
+			return err
+		}
+
 		note := data.Note // แต่ละแถวต้องมี pointer ของตัวเอง
 
 		out := &models.StockLog{
