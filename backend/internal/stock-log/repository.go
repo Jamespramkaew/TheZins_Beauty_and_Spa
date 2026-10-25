@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Repository interface {
@@ -180,9 +181,43 @@ func (r *repository) GetStockLogs(ctx context.Context, f stockLogFilter) ([]mode
 	return logs, total, nil
 }
 
-// CreateStockLog
+// CreateStockLog บันทึก stock log 1 แถว
+// ถ้าเป็นการตัดออก (qty_change < 0) จะล็อกแถวสินค้าแล้วเช็คยอดคงเหลือใน transaction เดียวกับการบันทึก
+// คนอื่นที่ตัดสินค้าตัวเดียวกันพร้อมกันต้องรอจนเรา commit จึงเห็นยอดล่าสุดเสมอ สต็อกไม่ติดลบ
 func (r *repository) CreateStockLog(ctx context.Context, log *models.StockLog) error {
-	return r.db.WithContext(ctx).Create(log).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if log.QtyChange < 0 {
+			if err := lockStock(tx, log.StockID); err != nil {
+				return err
+			}
+			if err := checkEnoughStock(tx, log.StockID, log.BranchID, -log.QtyChange); err != nil {
+				return err
+			}
+		}
+		return tx.Create(log).Error
+	})
+}
+
+// lockStock ล็อกแถวสินค้า (SELECT ... FOR UPDATE) ไว้จนกว่า transaction จะจบ
+func lockStock(tx *gorm.DB, stockId string) error {
+	var stock models.Stock
+	return tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&stock, "id = ?", stockId).Error
+}
+
+// checkEnoughStock เช็คว่าสาขานี้มีสินค้าพอให้ตัดออก need ชิ้น
+// ต้องเรียกหลัง lockStock ใน transaction เดียวกัน ยอดที่อ่านได้จึงเป็นยอดล่าสุด
+func checkEnoughStock(tx *gorm.DB, stockId, branchId string, need int) error {
+	var available int
+	if err := tx.Model(&models.StockLog{}).
+		Where("stock_id = ? AND branch_id = ?", stockId, branchId).
+		Select("COALESCE(SUM(qty_change), 0)").
+		Scan(&available).Error; err != nil {
+		return err
+	}
+	if available < need {
+		return invalid("insufficient stock: available %d, requested %d", available, need)
+	}
+	return nil
 }
 
 // TransferStockLog ลง 2 แถวใน transaction เดียว: สาขาต้นทาง (-qty) และสาขาปลายทาง (+qty)
