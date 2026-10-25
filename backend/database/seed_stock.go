@@ -315,10 +315,11 @@ func verifyStockInventory(tx *gorm.DB) error {
 			WHERE (log_type = 'open' AND qty_change <> -1) OR (log_type = 'receive' AND qty_change <= 0)`,
 		},
 		{
-			"every log must be made by an active employee of the same branch",
+			"every log must be made by an active employee of the same branch (transfer: the sender)",
 			`SELECT COUNT(*) FROM stock_logs l
 				LEFT JOIN employees e ON e.id = l.employee_id
-			WHERE e.id IS NULL OR e.branch_id <> l.branch_id OR e.is_active = false`,
+			WHERE e.id IS NULL OR e.is_active = false
+			   OR (e.branch_id <> l.branch_id AND l.log_type <> 'transfer')`,
 		},
 		{
 			"adjust and count_diff logs need a note",

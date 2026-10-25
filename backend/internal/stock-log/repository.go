@@ -222,6 +222,8 @@ func checkEnoughStock(tx *gorm.DB, stockId, branchId string, need int) error {
 
 // TransferStockLog ลง 2 แถวใน transaction เดียว: สาขาต้นทาง (-qty) และสาขาปลายทาง (+qty)
 // ถ้าแถวใดแถวหนึ่งพัง จะ rollback ทั้งคู่
+// ทั้ง 2 แถวใช้ employee_id ของคนส่ง (พนักงานสาขาต้นทาง) เพราะ employee_id = คนที่ทำรายการ
+// แถวปลายทางจึงเป็นพนักงานคนละสาขากับแถวได้ (ยกเว้นไว้ในกฎของ verifyStockInventory)
 func (r *repository) TransferStockLog(ctx context.Context, data TransferStockLogRequest, logType string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// ล็อกแถวสินค้าแล้วเช็คยอดสาขาต้นทางใน transaction เดียวกับการลง 2 แถว (โอนพร้อมกันต้นทางก็ไม่ติดลบ)
