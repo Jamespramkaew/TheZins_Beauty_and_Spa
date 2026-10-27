@@ -19,21 +19,21 @@ type ContainerQuery struct {
 }
 
 type AddStockRequest struct {
-	StockName   string          `json:"stockName" validate:"required,max=150"`
+	StockName   string          `json:"stock_name" validate:"required,max=150"`
 	Price       decimal.Decimal `json:"price" validate:"required,gte=0"`
-	IsSellable  bool            `json:"isSellable"`
+	IsSellable  bool            `json:"is_sellable"`
 	Category    string          `json:"category" validate:"required,oneof=premium normal"`
-	UsesPerUnit int             `json:"usesPerUnit" validate:"required,gte=1"`
-	MinQty      int             `json:"minQty" validate:"gte=0"`
+	UsesPerUnit int             `json:"uses_per_unit" validate:"required,gte=1"`
+	MinQty      int             `json:"min_qty" validate:"gte=0"`
 }
 
 type UpdateStockRequest struct {
-	StockName   *string         `json:"stockName"`
+	StockName   *string         `json:"stock_name"`
 	Price       decimal.Decimal `json:"price"` // ไม่ใช้ pointer เพราะ decimal.Decimal unmarshal ไม่ได้
 	PriceSet    bool            `json:"-"`     // flag บอกว่า price ถูกส่งมาหรือไม่
-	IsSellable  *bool           `json:"isSellable"`
+	IsSellable  *bool           `json:"is_sellable"`
 	Category    *string         `json:"category"`
-	UsesPerUnit *int            `json:"usesPerUnit"`
-	MinQty      *int            `json:"minQty"`
-	IsActive    *bool           `json:"isActive"`
+	UsesPerUnit *int            `json:"uses_per_unit"`
+	MinQty      *int            `json:"min_qty"`
+	IsActive    *bool           `json:"is_active"`
 }

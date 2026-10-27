@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"backend/internal/currentuser"
 	"backend/internal/models"
 	_package "backend/package"
 
@@ -26,24 +27,23 @@ type mockService struct {
 	updateStock func(ctx context.Context, id string, data UpdateStockRequest) (models.Stock, error)
 	deleteStock func(ctx context.Context, id string) error
 	restore     func(ctx context.Context, id string) (models.Stock, error)
-	containers  func(ctx context.Context, role, branch string, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error)
+	containers  func(ctx context.Context, user *currentuser.CurrentUser, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error)
 
 	addCalls    int
 	updateCalls int
 	lastUpdate  UpdateStockRequest
 	lastQuery   ContainerQuery
-	lastRole    string
-	lastBranch  string
+	lastUser    *currentuser.CurrentUser
 }
 
 func (m *mockService) GetAllStock(ctx context.Context) ([]models.Stock, error) {
 	return []models.Stock{{ID: validStockID, Name: "ครีมกันแดด"}}, nil
 }
 
-func (m *mockService) GetStockContainersByStockID(ctx context.Context, role, branch string, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error) {
-	m.lastRole, m.lastBranch, m.lastQuery = role, branch, q
+func (m *mockService) GetStockContainersByStockID(ctx context.Context, user *currentuser.CurrentUser, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error) {
+	m.lastUser, m.lastQuery = user, q
 	if m.containers != nil {
-		return m.containers(ctx, role, branch, q)
+		return m.containers(ctx, user, q)
 	}
 	return []models.StockContainer{}, _package.NewPageMeta(1, 20, 0), nil
 }
@@ -82,21 +82,28 @@ func (m *mockService) RestoreStockById(ctx context.Context, id string) (models.S
 // ---------- Helpers ----------
 
 // newTestApp สร้าง fiber app เล็กๆ ที่ลงทะเบียนเฉพาะ handler (ข้าม AuthMiddleware จริง)
-// แล้วตั้ง role/branchId ใน Locals แทน เหมือนที่ middleware จริงทำ
+// แล้วตั้ง CurrentUser ใน context แทน เหมือนที่ middleware จริงทำ
 func newTestApp(svc Service, role, branchID string) *fiber.App {
 	h := NewHandler(svc)
 	app := fiber.New()
 	app.Use(func(c fiber.Ctx) error {
-		c.Locals("role", role)
-		c.Locals("branchId", branchID)
+		user := &currentuser.CurrentUser{
+			ID:       "test-user-id",
+			Username: "testuser",
+			Role:     role,
+		}
+		if branchID != "" {
+			user.BranchID = &branchID
+		}
+		currentuser.Set(c, user)
 		return c.Next()
 	})
-	app.Get("/stock", h.GetAllStock)
-	app.Get("/stock/:id/containers", h.GetStockContainersByStockID)
-	app.Post("/stock", h.AddStock)
-	app.Patch("/stock/:stockId", h.UpdateStockById)
-	app.Delete("/stock/:stockId", h.DeleteStockById)
-	app.Post("/stock/:stockId/restore", h.RestoreStockById)
+	app.Get("/stocks", h.GetAllStock)
+	app.Get("/stocks/:id/containers", h.GetStockContainersByStockID)
+	app.Post("/stocks", h.AddStock)
+	app.Patch("/stocks/:id", h.UpdateStockById)
+	app.Delete("/stocks/:id", h.DeleteStockById)
+	app.Post("/stocks/:id/restore", h.RestoreStockById)
 	return app
 }
 
@@ -141,10 +148,10 @@ func TestHandlers_NonAdminIsForbidden(t *testing.T) {
 		path   string
 		body   string
 	}{
-		{"POST /stock", http.MethodPost, "/stock", `{"stockName":"x"}`},
-		{"PATCH /stock/:id", http.MethodPatch, "/stock/" + validStockID, `{"minQty":1}`},
-		{"DELETE /stock/:id", http.MethodDelete, "/stock/" + validStockID, ""},
-		{"POST /stock/:id/restore", http.MethodPost, "/stock/" + validStockID + "/restore", ""},
+		{"POST /stocks", http.MethodPost, "/stocks", `{"stock_name":"x"}`},
+		{"PATCH /stocks/:id", http.MethodPatch, "/stocks/" + validStockID, `{"min_qty":1}`},
+		{"DELETE /stocks/:id", http.MethodDelete, "/stocks/" + validStockID, ""},
+		{"POST /stocks/:id/restore", http.MethodPost, "/stocks/" + validStockID + "/restore", ""},
 	}
 
 	for _, tt := range tests {
@@ -165,7 +172,7 @@ func TestHandlers_NonAdminIsForbidden(t *testing.T) {
 func TestGetAllStock_OK(t *testing.T) {
 	app := newTestApp(&mockService{}, "branch", validBranchID)
 
-	resp, body := doRequest(t, app, http.MethodGet, "/stock", "")
+	resp, body := doRequest(t, app, http.MethodGet, "/stocks", "")
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, true, body["success"])
@@ -176,12 +183,13 @@ func TestGetContainers_PassesQueryAndSessionToService(t *testing.T) {
 	app := newTestApp(svc, "branch", validBranchID)
 
 	resp, body := doRequest(t, app, http.MethodGet,
-		"/stock/"+validStockID+"/containers?status=closed&page=2&pageSize=10&branchId="+validBranchID, "")
+		"/stocks/"+validStockID+"/containers?status=closed&page=2&pageSize=10&branchId="+validBranchID, "")
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.NotNil(t, body["meta"], "endpoint แบ่งหน้าต้องมี meta")
-	assert.Equal(t, "branch", svc.lastRole)
-	assert.Equal(t, validBranchID, svc.lastBranch)
+	assert.Equal(t, "branch", svc.lastUser.Role)
+	assert.NotNil(t, svc.lastUser.BranchID)
+	assert.Equal(t, validBranchID, *svc.lastUser.BranchID)
 	assert.Equal(t, ContainerQuery{
 		StockID:  validStockID,
 		BranchID: validBranchID,
@@ -193,13 +201,13 @@ func TestGetContainers_PassesQueryAndSessionToService(t *testing.T) {
 
 func TestGetContainers_ServiceValidationError_Returns400(t *testing.T) {
 	svc := &mockService{
-		containers: func(ctx context.Context, role, branch string, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error) {
+		containers: func(ctx context.Context, user *currentuser.CurrentUser, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error) {
 			return nil, _package.PageMeta{}, invalid("status must be one of: open, closed, all")
 		},
 	}
 	app := newTestApp(svc, "admin", "")
 
-	resp, body := doRequest(t, app, http.MethodGet, "/stock/"+validStockID+"/containers?status=x", "")
+	resp, body := doRequest(t, app, http.MethodGet, "/stocks/"+validStockID+"/containers?status=x", "")
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	assert.Contains(t, errorDetail(t, body), "status")
@@ -211,8 +219,8 @@ func TestAddStock_Handler_Created(t *testing.T) {
 	svc := &mockService{}
 	app := newTestApp(svc, "admin", "")
 
-	resp, body := doRequest(t, app, http.MethodPost, "/stock",
-		`{"stockName":"ครีมกันแดด","price":500,"isSellable":true,"category":"premium","usesPerUnit":10,"minQty":5}`)
+	resp, body := doRequest(t, app, http.MethodPost, "/stocks",
+		`{"stock_name":"ครีมกันแดด","price":500,"is_sellable":true,"category":"premium","uses_per_unit":10,"min_qty":5}`)
 
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	assert.Equal(t, true, body["success"])
@@ -224,11 +232,11 @@ func TestAddStock_Handler_WrongType_Returns400(t *testing.T) {
 	svc := &mockService{}
 	app := newTestApp(svc, "admin", "")
 
-	resp, body := doRequest(t, app, http.MethodPost, "/stock",
-		`{"stockName":"x","price":10,"category":"normal","usesPerUnit":"3"}`)
+	resp, body := doRequest(t, app, http.MethodPost, "/stocks",
+		`{"stock_name":"x","price":10,"category":"normal","uses_per_unit":"3"}`)
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	assert.Contains(t, errorDetail(t, body), "usesPerUnit")
+	assert.Contains(t, errorDetail(t, body), "uses_per_unit")
 	assert.Equal(t, 0, svc.addCalls)
 }
 
@@ -240,8 +248,8 @@ func TestAddStock_Handler_ServiceConflict_Returns409(t *testing.T) {
 	}
 	app := newTestApp(svc, "admin", "")
 
-	resp, _ := doRequest(t, app, http.MethodPost, "/stock",
-		`{"stockName":"ซ้ำ","price":10,"category":"normal","usesPerUnit":1}`)
+	resp, _ := doRequest(t, app, http.MethodPost, "/stocks",
+		`{"stock_name":"ซ้ำ","price":10,"category":"normal","uses_per_unit":1}`)
 
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 }
@@ -254,8 +262,8 @@ func TestAddStock_Handler_UnknownServiceError_Returns500(t *testing.T) {
 	}
 	app := newTestApp(svc, "admin", "")
 
-	resp, _ := doRequest(t, app, http.MethodPost, "/stock",
-		`{"stockName":"x","price":10,"category":"normal","usesPerUnit":1}`)
+	resp, _ := doRequest(t, app, http.MethodPost, "/stocks",
+		`{"stock_name":"x","price":10,"category":"normal","uses_per_unit":1}`)
 
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }
@@ -266,8 +274,8 @@ func TestUpdateStock_Handler_ParsesFields(t *testing.T) {
 	svc := &mockService{}
 	app := newTestApp(svc, "admin", "")
 
-	resp, _ := doRequest(t, app, http.MethodPatch, "/stock/"+validStockID,
-		`{"stockName":"ใหม่","price":"750.50","isSellable":true,"category":"normal","usesPerUnit":3,"minQty":2,"isActive":false}`)
+	resp, _ := doRequest(t, app, http.MethodPatch, "/stocks/"+validStockID,
+		`{"stock_name":"ใหม่","price":"750.50","is_sellable":true,"category":"normal","uses_per_unit":3,"min_qty":2,"is_active":false}`)
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	got := svc.lastUpdate
@@ -286,7 +294,7 @@ func TestUpdateStock_Handler_OnlySentFieldsAreSet(t *testing.T) {
 	svc := &mockService{}
 	app := newTestApp(svc, "admin", "")
 
-	resp, _ := doRequest(t, app, http.MethodPatch, "/stock/"+validStockID, `{"minQty":0}`)
+	resp, _ := doRequest(t, app, http.MethodPatch, "/stocks/"+validStockID, `{"min_qty":0}`)
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	got := svc.lastUpdate
@@ -308,14 +316,14 @@ func TestUpdateStock_Handler_BadFields_Returns400(t *testing.T) {
 		{"price เป็น null", `{"price":null}`, "price"},
 		{"price เป็น bool", `{"price":true}`, "price"},
 		{"price เป็น object", `{"price":{}}`, "price"},
-		{"usesPerUnit เป็นทศนิยม", `{"usesPerUnit":2.7}`, "usesPerUnit"},
-		{"usesPerUnit เป็นข้อความ", `{"usesPerUnit":"3"}`, "usesPerUnit"},
-		{"usesPerUnit ใหญ่เกิน int32", `{"usesPerUnit":1e20}`, "usesPerUnit"},
-		{"minQty เป็นทศนิยม", `{"minQty":1.5}`, "minQty"},
-		{"stockName ไม่ใช่ string", `{"stockName":123}`, "stockName"},
-		{"isSellable ไม่ใช่ bool", `{"isSellable":"yes"}`, "isSellable"},
+		{"usesPerUnit เป็นทศนิยม", `{"uses_per_unit":2.7}`, "uses_per_unit"},
+		{"usesPerUnit เป็นข้อความ", `{"uses_per_unit":"3"}`, "uses_per_unit"},
+		{"usesPerUnit ใหญ่เกิน int32", `{"uses_per_unit":1e20}`, "uses_per_unit"},
+		{"minQty เป็นทศนิยม", `{"min_qty":1.5}`, "min_qty"},
+		{"stockName ไม่ใช่ string", `{"stock_name":123}`, "stock_name"},
+		{"isSellable ไม่ใช่ bool", `{"is_sellable":"yes"}`, "is_sellable"},
 		{"category ไม่ใช่ string", `{"category":1}`, "category"},
-		{"isActive ไม่ใช่ bool", `{"isActive":"true"}`, "isActive"},
+		{"isActive ไม่ใช่ bool", `{"is_active":"true"}`, "is_active"},
 	}
 
 	for _, tt := range tests {
@@ -323,7 +331,7 @@ func TestUpdateStock_Handler_BadFields_Returns400(t *testing.T) {
 			svc := &mockService{}
 			app := newTestApp(svc, "admin", "")
 
-			resp, body := doRequest(t, app, http.MethodPatch, "/stock/"+validStockID, tt.body)
+			resp, body := doRequest(t, app, http.MethodPatch, "/stocks/"+validStockID, tt.body)
 
 			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 			assert.Contains(t, errorDetail(t, body), tt.detail)
@@ -336,7 +344,7 @@ func TestUpdateStock_Handler_InvalidJSON_Returns400(t *testing.T) {
 	svc := &mockService{}
 	app := newTestApp(svc, "admin", "")
 
-	resp, _ := doRequest(t, app, http.MethodPatch, "/stock/"+validStockID, `{"price":`)
+	resp, _ := doRequest(t, app, http.MethodPatch, "/stocks/"+validStockID, `{"price":`)
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	assert.Equal(t, 0, svc.updateCalls)
@@ -350,7 +358,7 @@ func TestUpdateStock_Handler_NotFound_Returns404(t *testing.T) {
 	}
 	app := newTestApp(svc, "admin", "")
 
-	resp, _ := doRequest(t, app, http.MethodPatch, "/stock/"+validStockID, `{"minQty":1}`)
+	resp, _ := doRequest(t, app, http.MethodPatch, "/stocks/"+validStockID, `{"min_qty":1}`)
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -361,7 +369,7 @@ func TestDeleteStock_Handler(t *testing.T) {
 	t.Run("สำเร็จ 200", func(t *testing.T) {
 		app := newTestApp(&mockService{}, "admin", "")
 
-		resp, _ := doRequest(t, app, http.MethodDelete, "/stock/"+validStockID, "")
+		resp, _ := doRequest(t, app, http.MethodDelete, "/stocks/"+validStockID, "")
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
@@ -371,7 +379,7 @@ func TestDeleteStock_Handler(t *testing.T) {
 		}}
 		app := newTestApp(svc, "admin", "")
 
-		resp, _ := doRequest(t, app, http.MethodDelete, "/stock/"+validStockID, "")
+		resp, _ := doRequest(t, app, http.MethodDelete, "/stocks/"+validStockID, "")
 
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
@@ -381,7 +389,7 @@ func TestRestoreStock_Handler(t *testing.T) {
 	t.Run("สำเร็จ 200", func(t *testing.T) {
 		app := newTestApp(&mockService{}, "admin", "")
 
-		resp, _ := doRequest(t, app, http.MethodPost, "/stock/"+validStockID+"/restore", "")
+		resp, _ := doRequest(t, app, http.MethodPost, "/stocks/"+validStockID+"/restore", "")
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
@@ -391,7 +399,7 @@ func TestRestoreStock_Handler(t *testing.T) {
 		}}
 		app := newTestApp(svc, "admin", "")
 
-		resp, _ := doRequest(t, app, http.MethodPost, "/stock/"+validStockID+"/restore", "")
+		resp, _ := doRequest(t, app, http.MethodPost, "/stocks/"+validStockID+"/restore", "")
 
 		assert.Equal(t, http.StatusConflict, resp.StatusCode)
 	})
@@ -441,7 +449,7 @@ func (f *failingListService) GetAllStock(ctx context.Context) ([]models.Stock, e
 func TestGetAllStock_ServiceError_Returns500(t *testing.T) {
 	app := newTestApp(&failingListService{}, "admin", "")
 
-	resp, body := doRequest(t, app, http.MethodGet, "/stock", "")
+	resp, body := doRequest(t, app, http.MethodGet, "/stocks", "")
 
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	assert.Equal(t, false, body["success"])
@@ -451,7 +459,7 @@ func TestGetAllStock_ServiceError_Returns500(t *testing.T) {
 func TestUnknownServiceError_DoesNotLeakInternalMessage(t *testing.T) {
 	app := newTestApp(&failingListService{}, "admin", "")
 
-	_, body := doRequest(t, app, http.MethodGet, "/stock", "")
+	_, body := doRequest(t, app, http.MethodGet, "/stocks", "")
 
 	assert.Equal(t, "Something went wrong", body["message"])
 	assert.NotContains(t, errorDetail(t, body), assert.AnError.Error())
@@ -470,7 +478,7 @@ func TestUpdateStock_Handler_PriceAcceptsNumberAndNumericString(t *testing.T) {
 			svc := &mockService{}
 			app := newTestApp(svc, "admin", "")
 
-			resp, _ := doRequest(t, app, http.MethodPatch, "/stock/"+validStockID, tt.body)
+			resp, _ := doRequest(t, app, http.MethodPatch, "/stocks/"+validStockID, tt.body)
 
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			assert.True(t, svc.lastUpdate.PriceSet)
@@ -487,7 +495,7 @@ func TestUpdateStock_Handler_PassesStockIdFromPath(t *testing.T) {
 	}}
 	app := newTestApp(svc, "admin", "")
 
-	doRequest(t, app, http.MethodPatch, "/stock/"+validStockID, `{"minQty":1}`)
+	doRequest(t, app, http.MethodPatch, "/stocks/"+validStockID, `{"min_qty":1}`)
 
 	assert.Equal(t, validStockID, gotID)
 }
@@ -496,7 +504,7 @@ func TestAddStock_Handler_InvalidJSON_Returns400(t *testing.T) {
 	svc := &mockService{}
 	app := newTestApp(svc, "admin", "")
 
-	resp, _ := doRequest(t, app, http.MethodPost, "/stock", `{"stockName":`)
+	resp, _ := doRequest(t, app, http.MethodPost, "/stocks", `{"stock_name":`)
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	assert.Equal(t, 0, svc.addCalls)
@@ -513,8 +521,8 @@ func TestDeleteAndRestore_Handler_PassIdToService(t *testing.T) {
 	}
 	app := newTestApp(svc, "admin", "")
 
-	doRequest(t, app, http.MethodDelete, "/stock/"+validStockID, "")
-	doRequest(t, app, http.MethodPost, "/stock/"+validStockID+"/restore", "")
+	doRequest(t, app, http.MethodDelete, "/stocks/"+validStockID, "")
+	doRequest(t, app, http.MethodPost, "/stocks/"+validStockID+"/restore", "")
 
 	assert.Equal(t, validStockID, deleted)
 	assert.Equal(t, validStockID, restored)

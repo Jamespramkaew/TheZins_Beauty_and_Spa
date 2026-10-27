@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"backend/internal/currentuser"
 	"backend/internal/models"
 	_package "backend/package"
 
@@ -40,7 +41,7 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 
 type Service interface {
 	GetAllStock(ctx context.Context) ([]models.Stock, error)
-	GetStockContainersByStockID(ctx context.Context, userRole string, sessionBranchId string, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error)
+	GetStockContainersByStockID(ctx context.Context, user *currentuser.CurrentUser, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error)
 	AddStock(ctx context.Context, data AddStockRequest) (models.Stock, error)
 	UpdateStockById(ctx context.Context, stockId string, data UpdateStockRequest) (models.Stock, error)
 	DeleteStockById(ctx context.Context, stockId string) error
@@ -64,7 +65,7 @@ func (s *service) GetAllStock(ctx context.Context) ([]models.Stock, error) {
 // admin: เลือกสาขาด้วย q.BranchID ได้ ไม่ส่งมา = ทุกสาขา
 // บัญชีอื่น: ถูกบังคับเป็นสาขาของตัวเองเสมอ (ไม่สนค่า q.BranchID กันดูข้ามสาขา)
 
-func (s *service) GetStockContainersByStockID(ctx context.Context, userRole string, sessionBranchId string, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error) {
+func (s *service) GetStockContainersByStockID(ctx context.Context, user *currentuser.CurrentUser, q ContainerQuery) ([]models.StockContainer, _package.PageMeta, error) {
 	var noMeta _package.PageMeta
 
 	if !uuidPattern.MatchString(q.StockID) {
@@ -90,16 +91,16 @@ func (s *service) GetStockContainersByStockID(ctx context.Context, userRole stri
 	}
 
 	var branchId string
-	if userRole == "admin" {
+	if user.Role == "admin" {
 		branchId = strings.TrimSpace(q.BranchID)
 		if branchId != "" && !uuidPattern.MatchString(branchId) {
 			return nil, noMeta, invalid("branchId must be a valid UUID")
 		}
 	} else {
-		if sessionBranchId == "" {
+		if user.BranchID == nil || *user.BranchID == "" {
 			return nil, noMeta, ErrBranchRequired
 		}
-		branchId = sessionBranchId
+		branchId = *user.BranchID
 	}
 
 	containers, total, err := s.repository.GetStockContainersByStockID(ctx, q.StockID, branchId, status, page, pageSize)
