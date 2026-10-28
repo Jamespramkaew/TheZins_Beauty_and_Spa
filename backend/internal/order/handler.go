@@ -11,6 +11,9 @@ import (
 // errLoginRequired ตอบ 401 เมื่อไม่มีผู้ใช้ (ยังไม่ login)
 var errLoginRequired = _package.NewAppError("Login required", _package.CodeUnauthorized, "")
 
+// errInvalidQuery ตอบ 400 เมื่ออ่าน query ไม่ได้ (ไม่ส่งข้อความ error ดิบของ library ออกไป)
+var errInvalidQuery = _package.NewAppError("Invalid query", _package.CodeValidation, "query string is invalid")
+
 type Handler struct {
 	service Service
 }
@@ -21,10 +24,10 @@ func NewHandler(service Service) *Handler {
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	orders := router.Group("/orders", middleware.AuthMiddleware)
-	orders.Post("", h.Create)
+	orders.Post("", middleware.ReqEmptyCheck, h.Create)
 	orders.Get("", h.List)
 	orders.Get("/:id", h.GetByID)
-	orders.Post("/:id/payments", h.AddPayment)
+	orders.Post("/:id/payments", middleware.ReqEmptyCheck, h.AddPayment)
 }
 
 // Create POST /api/orders
@@ -48,7 +51,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		_package.SuccessResponse("Order created successfully", order))
 }
 
-// List GET /api/orders?customer_id=&from=&to=&status=
+// List GET /api/orders?customer_id=&from=&to=&status=&page=&page_size=
 func (h *Handler) List(c fiber.Ctx) error {
 	user, ok := currentuser.FromCtx(c)
 	if !ok {
@@ -57,15 +60,15 @@ func (h *Handler) List(c fiber.Ctx) error {
 
 	var q ListOrdersQuery
 	if err := c.Bind().Query(&q); err != nil {
-		return _package.SendError(c, _package.NewAppError("Invalid query", _package.CodeValidation, err.Error()), "order")
+		return _package.SendError(c, errInvalidQuery, "order")
 	}
 
-	orders, err := h.service.List(c.Context(), user, q)
+	orders, meta, err := h.service.List(c.Context(), user, q)
 	if err != nil {
 		return _package.SendError(c, err, "order")
 	}
 	return _package.SendJSON(c, fiber.StatusOK,
-		_package.SuccessResponse("Orders retrieved successfully", orders))
+		_package.SuccessPagedResponse("Orders retrieved successfully", orders, meta))
 }
 
 // GetByID GET /api/orders/:id

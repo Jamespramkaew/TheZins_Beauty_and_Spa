@@ -11,7 +11,7 @@ import (
 )
 
 type Repository interface {
-	Search(ctx context.Context, q string, limit int) ([]models.Customer, error)
+	Search(ctx context.Context, q string, page, pageSize int) ([]models.Customer, int64, error)
 	GetByID(ctx context.Context, id string) (*models.Customer, error)
 	Create(ctx context.Context, customer *models.Customer) error
 	Update(ctx context.Context, id string, fields map[string]any) error
@@ -36,24 +36,37 @@ func NewRepository(db *gorm.DB) Repository {
 	return &repository{db: db}
 }
 
-// Search ค้นลูกค้าจาก HN, ชื่อเต็ม หรือเบอร์โทร (ไม่สนตัวพิมพ์เล็กใหญ่)
-// q ว่าง = คืนลูกค้าที่สร้างล่าสุด
-func (r *repository) Search(ctx context.Context, q string, limit int) ([]models.Customer, error) {
-	var customers []models.Customer
-
-	query := r.db.WithContext(ctx).Order("created_at DESC").Limit(limit)
+// Search ค้นลูกค้าจาก HN, ชื่อเต็ม หรือเบอร์โทร (ไม่สนตัวพิมพ์เล็กใหญ่) ทีละหน้า
+// q ว่าง = คืนลูกค้าที่สร้างล่าสุด · คืนจำนวนที่ตรงเงื่อนไขทั้งหมด (total) ไว้ทำ meta
+func (r *repository) Search(ctx context.Context, q string, page, pageSize int) ([]models.Customer, int64, error) {
+	filtered := r.db.WithContext(ctx).Model(&models.Customer{})
 	if q != "" {
 		like := "%" + q + "%"
-		query = query.Where(
+		filtered = filtered.Where(
 			"hn_no ILIKE ? OR CONCAT(fname, ' ', lname) ILIKE ? OR tel ILIKE ?",
 			like, like, like,
 		)
 	}
 
-	if err := query.Find(&customers).Error; err != nil {
-		return nil, err
+	// Session ทำให้ใช้ query เดียวกันซ้ำได้ทั้งตอน Count และ Find
+	filtered = filtered.Session(&gorm.Session{})
+
+	var total int64
+	if err := filtered.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	return customers, nil
+
+	var customers []models.Customer
+	// id เป็นตัวตัดสินเมื่อ created_at เท่ากัน ไม่งั้นข้ามหน้าแล้วแถวอาจซ้ำหรือตกหล่น
+	err := filtered.
+		Order("created_at DESC, id DESC").
+		Limit(pageSize).
+		Offset((page - 1) * pageSize).
+		Find(&customers).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return customers, total, nil
 }
 
 func (r *repository) GetByID(ctx context.Context, id string) (*models.Customer, error) {
