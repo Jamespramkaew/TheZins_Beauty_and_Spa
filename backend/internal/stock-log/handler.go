@@ -40,7 +40,7 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	stockLogs.Post("/transfer", middleware.ReqEmptyCheck, h.TransferStockLog)
 }
 
-// GetAllStockQuantities GET /api/stock-logs/quantities?branchId=&search=&category=&lowStock=&active=&page=&pageSize=
+// GetAllStockQuantities GET /api/stock-logs/quantities?branch_id=&search=&category=&low_stock=&active=&page=&page_size=
 func (h *Handler) GetAllStockQuantities(c fiber.Ctx) error {
 
 	userRole, sessionBranchId, ok := callerRoleAndBranch(c)
@@ -63,7 +63,7 @@ func (h *Handler) GetAllStockQuantities(c fiber.Ctx) error {
 		_package.SuccessPagedResponse("Stock quantities fetched successfully", quantities, meta))
 }
 
-// GetStockLogsByBranchId GET /api/stock-logs?stockId=&branchId=&logType=&direction=&from=&to=&orderItemId=&usageId=&page=&pageSize=
+// GetStockLogsByBranchId GET /api/stock-logs?stock_id=&branch_id=&log_type=&direction=&from=&to=&order_item_id=&usage_id=&page=&page_size=
 func (h *Handler) GetStockLogsByBranchId(c fiber.Ctx) error {
 
 	userRole, sessionBranchId, ok := callerRoleAndBranch(c)

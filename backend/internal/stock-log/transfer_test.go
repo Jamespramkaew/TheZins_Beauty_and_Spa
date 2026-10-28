@@ -355,8 +355,8 @@ func TestAdd_StockQuantityError_Propagates(t *testing.T) {
 // ---------- Handler: POST /stock-logs/transfer ----------
 
 func validTransferBody() string {
-	return `{"stockId":"` + validStockID + `","fromBranchId":"` + validBranchID +
-		`","toBranchId":"` + otherBranchID + `","employeeId":"` + validEmployeeID + `","qty":5}`
+	return `{"stock_id":"` + validStockID + `","from_branch_id":"` + validBranchID +
+		`","to_branch_id":"` + otherBranchID + `","employee_id":"` + validEmployeeID + `","qty":5}`
 }
 
 func TestHandler_Transfer_Success201(t *testing.T) {
@@ -380,7 +380,7 @@ func TestHandler_Transfer_BindsJSONBody(t *testing.T) {
 
 func TestHandler_Transfer_ClientCannotSetNote(t *testing.T) {
 	svc := &mockService{}
-	body := `{"stockId":"` + validStockID + `","toBranchId":"` + otherBranchID + `","employeeId":"` + validEmployeeID +
+	body := `{"stock_id":"` + validStockID + `","to_branch_id":"` + otherBranchID + `","employee_id":"` + validEmployeeID +
 		`","qty":5,"note":"แอบเขียนเอง"}`
 	resp, _ := doPost(t, newTestApp(svc, "admin", ""), "/stock-logs/transfer", body)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -402,7 +402,7 @@ func TestHandler_Transfer_BadBodyReturns400(t *testing.T) {
 		name string
 		body string
 	}{
-		{"JSON พัง", `{"stockId":`},
+		{"JSON พัง", `{"stock_id":`},
 		{"qty เป็น string", `{"qty":"five"}`},
 		{"qty เป็นทศนิยม", `{"qty":1.5}`},
 	}

@@ -180,9 +180,9 @@ func TestHandler_GetStockLogs_EmptyDataIsArray(t *testing.T) {
 
 func TestHandler_GetStockLogs_BindsQueryString(t *testing.T) {
 	svc := &mockService{}
-	path := "/stock-logs?stockId=" + validStockID + "&branchId=" + validBranchID +
-		"&logType=open&direction=out&from=2026-10-01&to=2026-10-31" +
-		"&orderItemId=" + validOrderItemID + "&usageId=" + validUsageID + "&page=2&pageSize=50"
+	path := "/stock-logs?stock_id=" + validStockID + "&branch_id=" + validBranchID +
+		"&log_type=open&direction=out&from=2026-10-01&to=2026-10-31" +
+		"&order_item_id=" + validOrderItemID + "&usage_id=" + validUsageID + "&page=2&page_size=50"
 
 	resp, _ := doGet(t, newTestApp(svc, "admin", ""), path)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -280,9 +280,9 @@ func TestHandler_GetQuantities_EmptyDataIsArray(t *testing.T) {
 
 func TestHandler_GetQuantities_BindsQueryString(t *testing.T) {
 	svc := &mockService{}
-	path := "/stock-logs/quantities?branchId=" + validBranchID +
+	path := "/stock-logs/quantities?branch_id=" + validBranchID +
 		"&search=" + "%E0%B8%84%E0%B8%A3%E0%B8%B5%E0%B8%A1" + // "ครีม" (URL-encoded)
-		"&category=premium&lowStock=true&active=all&page=3&pageSize=10"
+		"&category=premium&low_stock=true&active=all&page=3&page_size=10"
 
 	resp, _ := doGet(t, newTestApp(svc, "admin", ""), path)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -302,7 +302,7 @@ func TestHandler_GetQuantities_PassesRoleAndBranchFromSession(t *testing.T) {
 }
 
 func TestHandler_GetQuantities_InvalidQueryType_Returns400(t *testing.T) {
-	resp, body := doGet(t, newTestApp(&mockService{}, "admin", ""), "/stock-logs/quantities?lowStock=maybe")
+	resp, body := doGet(t, newTestApp(&mockService{}, "admin", ""), "/stock-logs/quantities?low_stock=maybe")
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	assert.Equal(t, _package.CodeValidation, errorOf(t, body)["type"])
@@ -336,8 +336,8 @@ func TestHandler_GetQuantities_ServiceErrorMapping(t *testing.T) {
 // ---------- POST /stock-logs ----------
 
 func validMovementBody() string {
-	return `{"type":"receive","branchId":"` + validBranchID + `","stockId":"` + validStockID +
-		`","employeeId":"` + validEmployeeID + `","qty":10,"note":"รับของ"}`
+	return `{"type":"receive","branch_id":"` + validBranchID + `","stock_id":"` + validStockID +
+		`","employee_id":"` + validEmployeeID + `","qty":10,"note":"รับของ"}`
 }
 
 func TestHandler_AddMovement_Success201(t *testing.T) {
