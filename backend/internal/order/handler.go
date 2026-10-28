@@ -24,10 +24,10 @@ func NewHandler(service Service) *Handler {
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	orders := router.Group("/orders", middleware.AuthMiddleware)
-	orders.Post("", h.Create)
+	orders.Post("", middleware.ReqEmptyCheck, h.Create)
 	orders.Get("", h.List)
 	orders.Get("/:id", h.GetByID)
-	orders.Post("/:id/payments", h.AddPayment)
+	orders.Post("/:id/payments", middleware.ReqEmptyCheck, h.AddPayment)
 }
 
 // Create POST /api/orders

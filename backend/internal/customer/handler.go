@@ -23,9 +23,9 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	customers := router.Group("/customers", middleware.AuthMiddleware)
 	customers.Get("", h.Search)
 	customers.Get("/:id", h.GetByID)
-	customers.Post("", h.Create)
-	customers.Patch("/:id", h.Update)
-	customers.Post("/:id/tier", h.ChangeTier)
+	customers.Post("", middleware.ReqEmptyCheck, h.Create)
+	customers.Patch("/:id", middleware.ReqEmptyCheck, h.Update)
+	customers.Post("/:id/tier", middleware.ReqEmptyCheck, h.ChangeTier)
 	customers.Get("/:id/tier-changes", h.ListTierChanges)
 }
 
