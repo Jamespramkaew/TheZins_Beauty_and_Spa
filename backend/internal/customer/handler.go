@@ -29,14 +29,19 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	customers.Get("/:id/tier-changes", h.ListTierChanges)
 }
 
-// Search GET /api/customers?q=
+// Search GET /api/customers?q=&page=&page_size=
 func (h *Handler) Search(c fiber.Ctx) error {
-	customers, err := h.service.Search(c.Context(), c.Query("q"))
+	q := SearchCustomersQuery{
+		Q:        c.Query("q"),
+		Page:     c.Query("page"),
+		PageSize: c.Query("page_size"),
+	}
+	customers, meta, err := h.service.Search(c.Context(), q)
 	if err != nil {
 		return _package.SendError(c, err, "customer")
 	}
 	return _package.SendJSON(c, fiber.StatusOK,
-		_package.SuccessResponse("Customers retrieved successfully", customers))
+		_package.SuccessPagedResponse("Customers retrieved successfully", customers, meta))
 }
 
 // GetByID GET /api/customers/:id
