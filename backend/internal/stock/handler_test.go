@@ -184,7 +184,7 @@ func TestGetContainers_PassesQueryAndSessionToService(t *testing.T) {
 	app := newTestApp(svc, "branch", validBranchID)
 
 	resp, body := doRequest(t, app, http.MethodGet,
-		"/stocks/"+validStockID+"/containers?status=closed&page=2&pageSize=10&branchId="+validBranchID, "")
+		"/stocks/"+validStockID+"/containers?status=closed&page=2&page_size=10&branch_id="+validBranchID, "")
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.NotNil(t, body["meta"], "endpoint แบ่งหน้าต้องมี meta")

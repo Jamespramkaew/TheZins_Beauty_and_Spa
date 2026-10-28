@@ -40,7 +40,7 @@ func (h *Handler) GetAllStock(c fiber.Ctx) error {
 		_package.SuccessResponse("Stocks retrieved successfully", stocks))
 }
 
-// GetStockContainersByStockID GET /api/stocks/:id/containers?status=open|closed|all&branchId=&page=1&pageSize=20
+// GetStockContainersByStockID GET /api/stocks/:id/containers?status=open|closed|all&branch_id=&page=1&page_size=20
 func (h *Handler) GetStockContainersByStockID(c fiber.Ctx) error {
 
 	user, ok := currentuser.FromCtx(c)
@@ -52,10 +52,10 @@ func (h *Handler) GetStockContainersByStockID(c fiber.Ctx) error {
 
 	q := ContainerQuery{
 		StockID:  c.Params("id"),
-		BranchID: c.Query("branchId"),
+		BranchID: c.Query("branch_id"),
 		Status:   c.Query("status"),
 		Page:     c.Query("page"),
-		PageSize: c.Query("pageSize"),
+		PageSize: c.Query("page_size"),
 	}
 
 	containers, meta, err := h.service.GetStockContainersByStockID(c.Context(), user, q)

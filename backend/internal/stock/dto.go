@@ -12,10 +12,10 @@ const (
 // ContainerQuery = ค่าที่ client ส่งมาตอนขอรายการกระปุกของสินค้า 1 ชนิด
 type ContainerQuery struct {
 	StockID  string // จาก path :id
-	BranchID string // จาก ?branchId= (admin เท่านั้นที่ใช้ได้ ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง)
+	BranchID string // จาก ?branch_id= (admin เท่านั้นที่ใช้ได้ ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง)
 	Status   string // จาก ?status= ว่าง = open
 	Page     string // จาก ?page= ว่าง = 1
-	PageSize string // จาก ?pageSize= ว่าง = 20 (สูงสุด 100)
+	PageSize string // จาก ?page_size= ว่าง = 20 (สูงสุด 100)
 }
 
 type AddStockRequest struct {
