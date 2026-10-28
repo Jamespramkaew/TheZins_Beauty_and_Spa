@@ -51,7 +51,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		_package.SuccessResponse("Order created successfully", order))
 }
 
-// List GET /api/orders?customer_id=&from=&to=&status=
+// List GET /api/orders?customer_id=&from=&to=&status=&page=&page_size=
 func (h *Handler) List(c fiber.Ctx) error {
 	user, ok := currentuser.FromCtx(c)
 	if !ok {
@@ -63,12 +63,12 @@ func (h *Handler) List(c fiber.Ctx) error {
 		return _package.SendError(c, errInvalidQuery, "order")
 	}
 
-	orders, err := h.service.List(c.Context(), user, q)
+	orders, meta, err := h.service.List(c.Context(), user, q)
 	if err != nil {
 		return _package.SendError(c, err, "order")
 	}
 	return _package.SendJSON(c, fiber.StatusOK,
-		_package.SuccessResponse("Orders retrieved successfully", orders))
+		_package.SuccessPagedResponse("Orders retrieved successfully", orders, meta))
 }
 
 // GetByID GET /api/orders/:id
