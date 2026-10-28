@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"backend/internal/currentuser"
+	"backend/internal/middleware"
 	"backend/internal/models"
 	_package "backend/package"
 
@@ -100,10 +101,10 @@ func newTestApp(svc Service, role, branchID string) *fiber.App {
 	})
 	app.Get("/stocks", h.GetAllStock)
 	app.Get("/stocks/:id/containers", h.GetStockContainersByStockID)
-	app.Post("/stocks", h.AddStock)
-	app.Patch("/stocks/:id", h.UpdateStockById)
-	app.Delete("/stocks/:id", h.DeleteStockById)
-	app.Post("/stocks/:id/restore", h.RestoreStockById)
+	app.Post("/stocks", middleware.RequireAdminMiddleware, h.AddStock)
+	app.Patch("/stocks/:id", middleware.RequireAdminMiddleware, h.UpdateStockById)
+	app.Delete("/stocks/:id", middleware.RequireAdminMiddleware, h.DeleteStockById)
+	app.Post("/stocks/:id/restore", middleware.RequireAdminMiddleware, h.RestoreStockById)
 	return app
 }
 
