@@ -33,10 +33,11 @@ func NewHandler(service Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
-	router.Get("/stock-logs/quantities", middleware.AuthMiddleware, h.GetAllStockQuantities)
-	router.Get("/stock-logs", middleware.AuthMiddleware, h.GetStockLogsByBranchId)
-	router.Post("/stock-logs", middleware.AuthMiddleware, middleware.ReqEmptyCheck, h.AddStockLogMovement)
-	router.Post("/stock-logs/transfer", middleware.AuthMiddleware, middleware.ReqEmptyCheck, h.TransferStockLog)
+	stockLogs := router.Group("/stock-logs", middleware.AuthMiddleware)
+	stockLogs.Get("/quantities", h.GetAllStockQuantities)
+	stockLogs.Get("", h.GetStockLogsByBranchId)
+	stockLogs.Post("", middleware.ReqEmptyCheck, h.AddStockLogMovement)
+	stockLogs.Post("/transfer", middleware.ReqEmptyCheck, h.TransferStockLog)
 }
 
 // GetAllStockQuantities GET /api/stock-logs/quantities?branchId=&search=&category=&lowStock=&active=&page=&pageSize=

@@ -484,18 +484,15 @@ func TestRegisterRoutes_RequiresAuth(t *testing.T) {
 }
 
 // stock_logs เป็น ledger แบบ append-only: ต้องไม่มี route แก้/ลบ (เพิ่มได้ผ่าน POST เท่านั้น)
+// เช็คจากตาราง route ตรงๆ เพราะยามที่ group ตอบ 401 ก่อนจะถึง 404 / 405
 func TestRegisterRoutes_NoUpdateOrDelete(t *testing.T) {
-	app := fiber.New(fiber.Config{ErrorHandler: _package.FiberErrorHandler})
+	app := fiber.New()
 	NewHandler(&mockService{}).RegisterRoutes(app.Group("/api"))
 
-	for _, method := range []string{http.MethodPatch, http.MethodPut, http.MethodDelete} {
-		t.Run(method, func(t *testing.T) {
-			resp, err := app.Test(httptest.NewRequest(method, "/api/stock-logs", nil))
-			require.NoError(t, err)
-			defer resp.Body.Close()
-
-			assert.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.StatusCode)
-		})
+	for _, r := range app.GetRoutes(true) {
+		if strings.HasPrefix(r.Path, "/api/stock-logs") {
+			assert.NotContains(t, []string{http.MethodPatch, http.MethodPut, http.MethodDelete}, r.Method, r.Path)
+		}
 	}
 }
 
