@@ -190,7 +190,7 @@ func TestHandler_GetStockLogs_BindsQueryString(t *testing.T) {
 	assert.Equal(t, GetAllStockLogsQuery{
 		StockID: validStockID, BranchID: validBranchID, LogType: "open", Direction: "out",
 		From: "2026-10-01", To: "2026-10-31", OrderItemID: validOrderItemID, UsageID: validUsageID,
-		Page: 2, PageSize: 50,
+		Page: "2", PageSize: "50",
 	}, svc.lastLogQuery)
 }
 
@@ -201,15 +201,6 @@ func TestHandler_GetStockLogs_PassesRoleAndBranchFromSession(t *testing.T) {
 
 	assert.Equal(t, "branch", svc.lastRole)
 	assert.Equal(t, validBranchID, svc.lastBranch)
-}
-
-func TestHandler_GetStockLogs_InvalidQueryType_Returns400(t *testing.T) {
-	svc := &mockService{}
-	resp, body := doGet(t, newTestApp(svc, "admin", ""), "/stock-logs?page=abc")
-
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	assert.Equal(t, false, body["success"])
-	assert.Equal(t, _package.CodeValidation, errorOf(t, body)["type"])
 }
 
 func TestHandler_GetStockLogs_ServiceErrorMapping(t *testing.T) {
@@ -288,7 +279,7 @@ func TestHandler_GetQuantities_BindsQueryString(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	assert.Equal(t, GetAllStockQuantitiesQuery{
-		BranchID: validBranchID, Search: "ครีม", Category: "premium", LowStock: true, Active: "all", Page: 3, PageSize: 10,
+		BranchID: validBranchID, Search: "ครีม", Category: "premium", LowStock: "true", Active: "all", Page: "3", PageSize: "10",
 	}, svc.lastQuantityQuery)
 }
 
@@ -299,13 +290,6 @@ func TestHandler_GetQuantities_PassesRoleAndBranchFromSession(t *testing.T) {
 
 	assert.Equal(t, "branch", svc.lastRole)
 	assert.Equal(t, validBranchID, svc.lastBranch)
-}
-
-func TestHandler_GetQuantities_InvalidQueryType_Returns400(t *testing.T) {
-	resp, body := doGet(t, newTestApp(&mockService{}, "admin", ""), "/stock-logs/quantities?low_stock=maybe")
-
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	assert.Equal(t, _package.CodeValidation, errorOf(t, body)["type"])
 }
 
 func TestHandler_GetQuantities_ServiceErrorMapping(t *testing.T) {
@@ -506,4 +490,27 @@ func TestHandler_NoCurrentUser_Unauthorized(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	assert.Equal(t, 0, svc.addCalls, "service ต้องไม่ถูกเรียก")
+}
+
+// query ผิด → 400 พร้อมข้อความที่ service เขียนเอง ไม่ใช่ข้อความดิบของ library
+// ใช้ service จริง (repo เป็น mock) เพราะการแปลง query อยู่ใน service
+func TestHandler_InvalidQuery_Returns400(t *testing.T) {
+	tests := []struct {
+		path       string
+		wantDetail string
+	}{
+		{"/stock-logs?page=abc", "page must be a number between 1 and 1000000"},
+		{"/stock-logs/quantities?page_size=0", "page_size must be a number between 1 and 100"},
+		{"/stock-logs/quantities?low_stock=maybe", "low_stock must be true or false"},
+	}
+	svc := NewService(&mockRepo{}, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{})
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			resp, body := doGet(t, newTestApp(svc, "admin", ""), tt.path)
+
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			assert.Equal(t, _package.CodeValidation, errorOf(t, body)["type"])
+			assert.Equal(t, tt.wantDetail, errorOf(t, body)["details"])
+		})
+	}
 }

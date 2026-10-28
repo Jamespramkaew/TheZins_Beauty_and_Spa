@@ -11,6 +11,9 @@ import (
 // errLoginRequired ตอบ 401 เมื่อไม่มีผู้ใช้ใน request (ไม่ได้ผ่าน AuthMiddleware)
 var errLoginRequired = _package.NewAppError("Login required", _package.CodeUnauthorized, "")
 
+// errInvalidQuery ตอบ 400 เมื่ออ่าน query ไม่ได้ (ไม่ส่งข้อความ error ดิบของ library ออกไป)
+var errInvalidQuery = _package.NewAppError("Invalid query", _package.CodeValidation, "query string is invalid")
+
 // callerRoleAndBranch อ่านผู้ใช้ด้วย currentuser แล้วแปลงเป็น role + branchId ที่ service ใช้
 // admin ไม่มีสาขา (BranchID = nil) → branchId เป็น ""
 func callerRoleAndBranch(c fiber.Ctx) (role, branchId string, ok bool) {
@@ -51,7 +54,7 @@ func (h *Handler) GetAllStockQuantities(c fiber.Ctx) error {
 	var q GetAllStockQuantitiesQuery
 	if err := c.Bind().Query(&q); err != nil {
 		return _package.SendError(c,
-			_package.NewAppError("Invalid query", _package.CodeValidation, err.Error()), "stock-log")
+			errInvalidQuery, "stock-log")
 	}
 
 	quantities, meta, err := h.service.GetAllStockQuantities(c.Context(), userRole, sessionBranchId, q)
@@ -74,7 +77,7 @@ func (h *Handler) GetStockLogsByBranchId(c fiber.Ctx) error {
 	var q GetAllStockLogsQuery
 	if err := c.Bind().Query(&q); err != nil {
 		return _package.SendError(c,
-			_package.NewAppError("Invalid query", _package.CodeValidation, err.Error()), "stock-log")
+			errInvalidQuery, "stock-log")
 	}
 
 	logs, meta, err := h.service.GetStockLogsByBranchId(c.Context(), userRole, sessionBranchId, q)

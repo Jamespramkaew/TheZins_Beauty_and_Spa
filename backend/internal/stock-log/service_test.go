@@ -3,6 +3,7 @@ package stocklog
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -307,28 +308,38 @@ func TestQuantities_Search(t *testing.T) {
 
 func TestQuantities_LowStockFlagPassedThrough(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{LowStock: true})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{LowStock: "true"})
 	require.NoError(t, err)
 	assert.True(t, repo.lastQuantity.LowStock)
+}
+
+func TestQuantities_InvalidLowStock(t *testing.T) {
+	repo := &mockRepo{}
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{LowStock: "maybe"})
+	appErr := requireAppError(t, err, _package.CodeValidation)
+	assert.Contains(t, appErr.Detail, "low_stock")
+	assert.Zero(t, repo.quantityCalls)
 }
 
 func TestQuantities_Paging(t *testing.T) {
 	tests := []struct {
 		name         string
-		page, size   int
+		page, size   string
 		wantPage     int
 		wantSize     int
 		wantErr      bool
 		wantErrField string
 	}{
-		{"ไม่ส่ง = ค่าเริ่มต้น", 0, 0, defaultPage, defaultPageSize, false, ""},
-		{"ค่าปกติ", 3, 50, 3, 50, false, ""},
-		{"page_size สูงสุด", 1, maxPageSize, 1, maxPageSize, false, ""},
-		{"page_size เกินสูงสุด", 1, maxPageSize + 1, 0, 0, true, "page_size"},
-		{"page_size ติดลบ", 1, -1, 0, 0, true, "page_size"},
-		{"page ติดลบ", -1, 10, 0, 0, true, "page"},
-		{"page เกินสูงสุด", maxPage + 1, 10, 0, 0, true, "page"},
-		{"page สูงสุด", maxPage, 10, maxPage, 10, false, ""},
+		{"ไม่ส่ง = ค่าเริ่มต้น", "", "", defaultPage, defaultPageSize, false, ""},
+		{"ค่าปกติ", "3", "50", 3, 50, false, ""},
+		{"page_size สูงสุด", "1", strconv.Itoa(maxPageSize), 1, maxPageSize, false, ""},
+		{"page_size เกินสูงสุด", "1", strconv.Itoa(maxPageSize + 1), 0, 0, true, "page_size"},
+		{"page_size ติดลบ", "1", "-1", 0, 0, true, "page_size"},
+		{"page_size เป็น 0", "1", "0", 0, 0, true, "page_size"},
+		{"page ติดลบ", "-1", "10", 0, 0, true, "page"},
+		{"page เกินสูงสุด", strconv.Itoa(maxPage + 1), "10", 0, 0, true, "page"},
+		{"page สูงสุด", strconv.Itoa(maxPage), "10", maxPage, 10, false, ""},
+		{"page ไม่ใช่ตัวเลข", "abc", "10", 0, 0, true, "page"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -582,14 +593,14 @@ func TestLogs_Paging(t *testing.T) {
 
 	t.Run("page_size เกินสูงสุด", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: maxPageSize + 1})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: strconv.Itoa(maxPageSize + 1)})
 		requireAppError(t, err, _package.CodeValidation)
 		assert.Zero(t, repo.logCalls)
 	})
 
 	t.Run("page ติดลบ", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{Page: -3})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{Page: "-3"})
 		requireAppError(t, err, _package.CodeValidation)
 	})
 }
@@ -600,7 +611,7 @@ func TestLogs_AllFiltersPassedToRepo(t *testing.T) {
 	repo := &mockRepo{}
 	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{
 		StockID: validStockID, BranchID: validBranchID, LogType: "open", Direction: "out",
-		OrderItemID: validOrderItemID, UsageID: validUsageID, Page: 2, PageSize: 10,
+		OrderItemID: validOrderItemID, UsageID: validUsageID, Page: "2", PageSize: "10",
 	})
 	require.NoError(t, err)
 
@@ -630,7 +641,7 @@ func TestLogs_MapsModelToResponse(t *testing.T) {
 		},
 	}
 
-	items, meta, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: 20})
+	items, meta, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: "20"})
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 

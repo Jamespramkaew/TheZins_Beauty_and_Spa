@@ -11,10 +11,10 @@ type GetAllStockQuantitiesQuery struct {
 	BranchID string `query:"branch_id"` // admin เท่านั้น ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง ว่าง (admin) = ทุกสาขา
 	Search   string `query:"search"`    // ค้นชื่อสินค้า
 	Category string `query:"category"`  // premium | normal ว่าง = ทั้งหมด
-	LowStock bool   `query:"low_stock"` // true = เฉพาะที่ยอดคงเหลือ <= min_qty
+	LowStock string `query:"low_stock"` // true | false ว่าง = false (true = เฉพาะที่ยอดคงเหลือ <= min_qty)
 	Active   string `query:"active"`    // true | false | all ว่าง = true (all รวมสินค้าที่ถูก soft delete)
-	Page     int    `query:"page"`      // 0 = 1
-	PageSize int    `query:"page_size"` // 0 = 20 สูงสุด 100
+	Page     string `query:"page"`      // ว่าง = 1
+	PageSize string `query:"page_size"` // ว่าง = 20 สูงสุด 100
 }
 
 // StockQuantity = ยอดคงเหลือของสินค้า 1 ชนิดใน 1 สาขา (นับเฉพาะของที่ยังไม่เปิด)
@@ -42,8 +42,8 @@ type GetAllStockLogsQuery struct {
 	To          string `query:"to"`            // YYYY-MM-DD (เวลาไทย) นับถึงสิ้นวันนั้น
 	OrderItemID string `query:"order_item_id"` // log ที่เกิดจากรายการขายนี้
 	UsageID     string `query:"usage_id"`      // log ที่เกิดจากการใช้บริการนี้
-	Page        int    `query:"page"`          // 0 = 1
-	PageSize    int    `query:"page_size"`     // 0 = 20 สูงสุด 100
+	Page        string `query:"page"`          // ว่าง = 1
+	PageSize    string `query:"page_size"`     // ว่าง = 20 สูงสุด 100
 }
 
 // StockLogResponse = แถวประวัติสต็อก 1 แถวใน GET /api/stock-logs (เฉพาะฟิลด์ที่หน้าจอต้องใช้)

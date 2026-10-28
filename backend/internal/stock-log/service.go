@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,11 +134,16 @@ func (s *service) GetAllStockQuantities(ctx context.Context, userRole string, se
 		return nil, noMeta, invalid("search must not exceed %d characters", maxSearchLen)
 	}
 
-	page, err := boundedInt("page", q.Page, defaultPage, maxPage)
+	lowStock, err := parseOptionalBool("low_stock", q.LowStock)
 	if err != nil {
 		return nil, noMeta, err
 	}
-	pageSize, err := boundedInt("page_size", q.PageSize, defaultPageSize, maxPageSize)
+
+	page, err := parseBoundedInt("page", q.Page, defaultPage, maxPage)
+	if err != nil {
+		return nil, noMeta, err
+	}
+	pageSize, err := parseBoundedInt("page_size", q.PageSize, defaultPageSize, maxPageSize)
 	if err != nil {
 		return nil, noMeta, err
 	}
@@ -146,7 +152,7 @@ func (s *service) GetAllStockQuantities(ctx context.Context, userRole string, se
 		BranchID: branchId,
 		Search:   search,
 		Category: category,
-		LowStock: q.LowStock,
+		LowStock: lowStock,
 		Active:   active,
 		Page:     page,
 		PageSize: pageSize,
@@ -164,14 +170,29 @@ func (s *service) GetAllStockQuantities(ctx context.Context, userRole string, se
 	return items, _package.NewPageMeta(page, pageSize, total), nil
 }
 
-func boundedInt(name string, n, def, max int) (int, error) {
-	if n == 0 {
+// parseBoundedInt แปลง query ที่รับมาเป็นข้อความให้เป็นตัวเลข ว่าง = ค่าเริ่มต้น
+// ไม่ใช่ตัวเลข หรืออยู่นอกช่วง 1..max → 400 พร้อมข้อความที่คนอ่านเข้าใจ
+func parseBoundedInt(name, raw string, def, max int) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return def, nil
 	}
-	if n < 1 || n > max {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > max {
 		return 0, invalid("%s must be a number between 1 and %d", name, max)
 	}
 	return n, nil
+}
+
+// parseOptionalBool แปลง query true / false ว่าง = false
+func parseOptionalBool(name, raw string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "false":
+		return false, nil
+	case "true":
+		return true, nil
+	}
+	return false, invalid("%s must be true or false", name)
 }
 
 // GetStockLogsByBranchId คืนประวัติ stock_logs ทีละหน้า เรียงใหม่สุดก่อน
@@ -238,11 +259,11 @@ func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, s
 		return nil, noMeta, invalid("from must not be after to")
 	}
 
-	page, err := boundedInt("page", q.Page, defaultPage, maxPage)
+	page, err := parseBoundedInt("page", q.Page, defaultPage, maxPage)
 	if err != nil {
 		return nil, noMeta, err
 	}
-	pageSize, err := boundedInt("page_size", q.PageSize, defaultPageSize, maxPageSize)
+	pageSize, err := parseBoundedInt("page_size", q.PageSize, defaultPageSize, maxPageSize)
 	if err != nil {
 		return nil, noMeta, err
 	}
