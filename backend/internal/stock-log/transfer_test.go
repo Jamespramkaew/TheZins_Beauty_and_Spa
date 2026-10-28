@@ -79,7 +79,7 @@ func TestTransfer_FromBranch(t *testing.T) {
 
 		err := newTransferService(repo).TransferStockLog(context.Background(), "admin", "", req)
 		appErr := requireAppError(t, err, _package.CodeValidation)
-		assert.Contains(t, appErr.Detail, "fromBranchId")
+		assert.Contains(t, appErr.Detail, "from_branch_id")
 		assert.Zero(t, repo.transferCalls)
 	})
 
@@ -140,13 +140,13 @@ func TestTransfer_ValidationReturns400AndNeverReachesRepo(t *testing.T) {
 	}{
 		{"qty เป็น 0", func(r *TransferStockLogRequest) { r.Qty = 0 }, "qty"},
 		{"qty ติดลบ", func(r *TransferStockLogRequest) { r.Qty = -3 }, "qty"},
-		{"stockId ว่าง", func(r *TransferStockLogRequest) { r.StockID = "" }, "stockId"},
-		{"stockId ไม่ใช่ UUID", func(r *TransferStockLogRequest) { r.StockID = "abc" }, "stockId"},
-		{"toBranchId ว่าง", func(r *TransferStockLogRequest) { r.ToBranchId = "  " }, "toBranchId"},
-		{"toBranchId ไม่ใช่ UUID", func(r *TransferStockLogRequest) { r.ToBranchId = "abc" }, "toBranchId"},
+		{"stock_id ว่าง", func(r *TransferStockLogRequest) { r.StockID = "" }, "stock_id"},
+		{"stock_id ไม่ใช่ UUID", func(r *TransferStockLogRequest) { r.StockID = "abc" }, "stock_id"},
+		{"to_branch_id ว่าง", func(r *TransferStockLogRequest) { r.ToBranchId = "  " }, "to_branch_id"},
+		{"to_branch_id ไม่ใช่ UUID", func(r *TransferStockLogRequest) { r.ToBranchId = "abc" }, "to_branch_id"},
 		{"ต้นทางกับปลายทางเป็นสาขาเดียวกัน", func(r *TransferStockLogRequest) { r.ToBranchId = r.FromBranchId }, "different"},
-		{"employeeId ว่าง", func(r *TransferStockLogRequest) { r.EmployeeID = "" }, "employeeId"},
-		{"employeeId ไม่ใช่ UUID", func(r *TransferStockLogRequest) { r.EmployeeID = "abc" }, "employeeId"},
+		{"employee_id ว่าง", func(r *TransferStockLogRequest) { r.EmployeeID = "" }, "employee_id"},
+		{"employee_id ไม่ใช่ UUID", func(r *TransferStockLogRequest) { r.EmployeeID = "abc" }, "employee_id"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -171,7 +171,7 @@ func TestTransfer_ExistenceChecks(t *testing.T) {
 
 		err := NewService(repo, stocks, &mockBranchRepo{}, &mockEmployeeRepo{}).TransferStockLog(context.Background(), "admin", "", validTransfer())
 		appErr := requireAppError(t, err, _package.CodeValidation)
-		assert.Contains(t, appErr.Detail, "stockId")
+		assert.Contains(t, appErr.Detail, "stock_id")
 		assert.Zero(t, repo.transferCalls)
 	})
 
@@ -216,7 +216,7 @@ func TestTransfer_EmployeeChecks(t *testing.T) {
 		emp  *models.Employee
 		want string
 	}{
-		{"ไม่พบพนักงาน", nil, "employeeId not found"},
+		{"ไม่พบพนักงาน", nil, "employee_id not found"},
 		{"พนักงานไม่ active", &models.Employee{ID: validEmployeeID, IsActive: false, BranchID: validBranchID}, "employee is not active"},
 		{"พนักงานอยู่สาขาปลายทาง ไม่ใช่ต้นทาง", &models.Employee{ID: validEmployeeID, IsActive: true, BranchID: otherBranchID}, "employee does not belong to the origin branch"},
 	}

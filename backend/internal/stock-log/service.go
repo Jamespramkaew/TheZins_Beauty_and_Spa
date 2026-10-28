@@ -105,7 +105,7 @@ func (s *service) GetAllStockQuantities(ctx context.Context, userRole string, se
 	if userRole == "admin" {
 		branchId = strings.TrimSpace(q.BranchID)
 		if branchId != "" && !uuidPattern.MatchString(branchId) {
-			return nil, noMeta, invalid("branchId must be a valid UUID")
+			return nil, noMeta, invalid("branch_id must be a valid UUID")
 		}
 	} else {
 		if sessionBranchId == "" {
@@ -137,7 +137,7 @@ func (s *service) GetAllStockQuantities(ctx context.Context, userRole string, se
 	if err != nil {
 		return nil, noMeta, err
 	}
-	pageSize, err := boundedInt("pageSize", q.PageSize, defaultPageSize, maxPageSize)
+	pageSize, err := boundedInt("page_size", q.PageSize, defaultPageSize, maxPageSize)
 	if err != nil {
 		return nil, noMeta, err
 	}
@@ -183,7 +183,7 @@ func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, s
 	var branchId string
 	if userRole == "admin" {
 		branchId = strings.TrimSpace(q.BranchID)
-		if err := checkOptionalUUID("branchId", branchId); err != nil {
+		if err := checkOptionalUUID("branch_id", branchId); err != nil {
 			return nil, noMeta, err
 		}
 	} else {
@@ -194,21 +194,21 @@ func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, s
 	}
 
 	stockId := strings.TrimSpace(q.StockID)
-	if err := checkOptionalUUID("stockId", stockId); err != nil {
+	if err := checkOptionalUUID("stock_id", stockId); err != nil {
 		return nil, noMeta, err
 	}
 	orderItemId := strings.TrimSpace(q.OrderItemID)
-	if err := checkOptionalUUID("orderItemId", orderItemId); err != nil {
+	if err := checkOptionalUUID("order_item_id", orderItemId); err != nil {
 		return nil, noMeta, err
 	}
 	usageId := strings.TrimSpace(q.UsageID)
-	if err := checkOptionalUUID("usageId", usageId); err != nil {
+	if err := checkOptionalUUID("usage_id", usageId); err != nil {
 		return nil, noMeta, err
 	}
 
 	logType := strings.ToLower(strings.TrimSpace(q.LogType))
 	if logType != "" && !validLogTypes[logType] {
-		return nil, noMeta, invalid("logType must be one of: receive, sale, use, open, damaged, expired, internal, transfer, adjust, count_diff")
+		return nil, noMeta, invalid("log_type must be one of: receive, sale, use, open, damaged, expired, internal, transfer, adjust, count_diff")
 	}
 
 	direction := strings.ToLower(strings.TrimSpace(q.Direction))
@@ -242,7 +242,7 @@ func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, s
 	if err != nil {
 		return nil, noMeta, err
 	}
-	pageSize, err := boundedInt("pageSize", q.PageSize, defaultPageSize, maxPageSize)
+	pageSize, err := boundedInt("page_size", q.PageSize, defaultPageSize, maxPageSize)
 	if err != nil {
 		return nil, noMeta, err
 	}
@@ -305,19 +305,19 @@ func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sess
 	}
 
 	stockId := strings.TrimSpace(data.StockID)
-	if err := checkRequiredUUID("stockId", stockId); err != nil {
+	if err := checkRequiredUUID("stock_id", stockId); err != nil {
 		return nil, err
 	}
 
 	employeeId := strings.TrimSpace(data.EmployeeID)
-	if err := checkRequiredUUID("employeeId", employeeId); err != nil {
+	if err := checkRequiredUUID("employee_id", employeeId); err != nil {
 		return nil, err
 	}
 
 	var branchId string
 	if userRole == "admin" {
 		branchId = strings.TrimSpace(data.BranchID)
-		if err := checkRequiredUUID("branchId", branchId); err != nil {
+		if err := checkRequiredUUID("branch_id", branchId); err != nil {
 			return nil, err
 		}
 	} else {
@@ -332,7 +332,7 @@ func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sess
 		return nil, err
 	}
 	if foundStock == nil {
-		return nil, invalid("stockId not found")
+		return nil, invalid("stock_id not found")
 	}
 
 	foundBranch, err := s.branchRepository.FindBranchById(ctx, branchId)
@@ -340,7 +340,7 @@ func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sess
 		return nil, err
 	}
 	if foundBranch == nil {
-		return nil, invalid("branchId not found")
+		return nil, invalid("branch_id not found")
 	}
 	if !foundBranch.IsActive {
 		return nil, invalid("branch is not active")
@@ -351,7 +351,7 @@ func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sess
 		return nil, err
 	}
 	if foundEmployee == nil {
-		return nil, invalid("employeeId not found")
+		return nil, invalid("employee_id not found")
 	}
 	if !foundEmployee.IsActive {
 		return nil, invalid("employee is not active")
@@ -396,14 +396,14 @@ func (s *service) TransferStockLog(ctx context.Context, userRole string, session
 	qtyChange := data.Qty
 
 	stockId := strings.TrimSpace(data.StockID)
-	if err := checkRequiredUUID("stockId", stockId); err != nil {
+	if err := checkRequiredUUID("stock_id", stockId); err != nil {
 		return err
 	}
 
 	var fromBranchId string
 	if userRole == "admin" {
 		fromBranchId = strings.TrimSpace(data.FromBranchId)
-		if err := checkRequiredUUID("fromBranchId", fromBranchId); err != nil {
+		if err := checkRequiredUUID("from_branch_id", fromBranchId); err != nil {
 			return err
 		}
 	} else {
@@ -414,7 +414,7 @@ func (s *service) TransferStockLog(ctx context.Context, userRole string, session
 	}
 
 	toBranchId := strings.TrimSpace(data.ToBranchId)
-	if err := checkRequiredUUID("toBranchId", toBranchId); err != nil {
+	if err := checkRequiredUUID("to_branch_id", toBranchId); err != nil {
 		return err
 	}
 
@@ -423,7 +423,7 @@ func (s *service) TransferStockLog(ctx context.Context, userRole string, session
 	}
 
 	employeeId := strings.TrimSpace(data.EmployeeID)
-	if err := checkRequiredUUID("employeeId", employeeId); err != nil {
+	if err := checkRequiredUUID("employee_id", employeeId); err != nil {
 		return err
 	}
 
@@ -432,7 +432,7 @@ func (s *service) TransferStockLog(ctx context.Context, userRole string, session
 		return err
 	}
 	if foundStock == nil {
-		return invalid("stockId not found")
+		return invalid("stock_id not found")
 	}
 
 	foundFromBranch, err := s.branchRepository.FindBranchById(ctx, fromBranchId)
@@ -462,7 +462,7 @@ func (s *service) TransferStockLog(ctx context.Context, userRole string, session
 		return err
 	}
 	if foundEmployee == nil {
-		return invalid("employeeId not found")
+		return invalid("employee_id not found")
 	}
 	if !foundEmployee.IsActive {
 		return invalid("employee is not active")
