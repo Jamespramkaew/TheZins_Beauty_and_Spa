@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"backend/internal/currentuser"
 	"backend/internal/models"
 	_package "backend/package"
 
@@ -74,13 +75,17 @@ func (m *mockService) GetStockLogsByBranchId(ctx context.Context, role, branch s
 // ---------- Helpers ----------
 
 // newTestApp ลงทะเบียนเฉพาะ handler (ข้าม AuthMiddleware จริง)
-// แล้วตั้ง role/branchId ใน Locals แทน เหมือนที่ middleware จริงทำ
+// แล้ววางผู้ใช้ด้วย currentuser.Set เหมือนที่ AuthMiddleware จริงทำ
+// branchID "" = admin (BranchID เป็น nil)
 func newTestApp(svc Service, role, branchID string) *fiber.App {
 	h := NewHandler(svc)
 	app := fiber.New()
 	app.Use(func(c fiber.Ctx) error {
-		c.Locals("role", role)
-		c.Locals("branchId", branchID)
+		user := &currentuser.CurrentUser{Role: role}
+		if branchID != "" {
+			user.BranchID = &branchID
+		}
+		currentuser.Set(c, user)
 		return c.Next()
 	})
 	app.Get("/stock-logs/quantities", h.GetAllStockQuantities)
@@ -492,4 +497,16 @@ func TestRegisterRoutes_NoUpdateOrDelete(t *testing.T) {
 			assert.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.StatusCode)
 		})
 	}
+}
+
+// ไม่มีผู้ใช้ใน request (ไม่ได้ผ่าน AuthMiddleware) → 401 และไม่เรียก service
+func TestHandler_NoCurrentUser_Unauthorized(t *testing.T) {
+	svc := &mockService{}
+	app := fiber.New()
+	app.Post("/stock-logs", NewHandler(svc).AddStockLogMovement)
+
+	resp, _ := doPost(t, app, "/stock-logs", `{"type":"receive"}`)
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Equal(t, 0, svc.addCalls, "service ต้องไม่ถูกเรียก")
 }

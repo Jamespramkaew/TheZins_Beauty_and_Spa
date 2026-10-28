@@ -1,11 +1,28 @@
 package stocklog
 
 import (
+	"backend/internal/currentuser"
 	"backend/internal/middleware"
 	_package "backend/package"
 
 	"github.com/gofiber/fiber/v3"
 )
+
+// errLoginRequired ตอบ 401 เมื่อไม่มีผู้ใช้ใน request (ไม่ได้ผ่าน AuthMiddleware)
+var errLoginRequired = _package.NewAppError("Login required", _package.CodeUnauthorized, "")
+
+// callerRoleAndBranch อ่านผู้ใช้ด้วย currentuser แล้วแปลงเป็น role + branchId ที่ service ใช้
+// admin ไม่มีสาขา (BranchID = nil) → branchId เป็น ""
+func callerRoleAndBranch(c fiber.Ctx) (role, branchId string, ok bool) {
+	user, ok := currentuser.FromCtx(c)
+	if !ok {
+		return "", "", false
+	}
+	if user.BranchID != nil {
+		branchId = *user.BranchID
+	}
+	return user.Role, branchId, true
+}
 
 type Handler struct {
 	service Service
@@ -25,8 +42,10 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 // GetAllStockQuantities GET /api/stock-logs/quantities?branchId=&search=&category=&lowStock=&active=&page=&pageSize=
 func (h *Handler) GetAllStockQuantities(c fiber.Ctx) error {
 
-	userRole, _ := c.Locals("role").(string)
-	sessionBranchId, _ := c.Locals("branchId").(string)
+	userRole, sessionBranchId, ok := callerRoleAndBranch(c)
+	if !ok {
+		return _package.SendError(c, errLoginRequired, "stock-log")
+	}
 
 	var q GetAllStockQuantitiesQuery
 	if err := c.Bind().Query(&q); err != nil {
@@ -46,8 +65,10 @@ func (h *Handler) GetAllStockQuantities(c fiber.Ctx) error {
 // GetStockLogsByBranchId GET /api/stock-logs?stockId=&branchId=&logType=&direction=&from=&to=&orderItemId=&usageId=&page=&pageSize=
 func (h *Handler) GetStockLogsByBranchId(c fiber.Ctx) error {
 
-	userRole, _ := c.Locals("role").(string)
-	sessionBranchId, _ := c.Locals("branchId").(string)
+	userRole, sessionBranchId, ok := callerRoleAndBranch(c)
+	if !ok {
+		return _package.SendError(c, errLoginRequired, "stock-log")
+	}
 
 	var q GetAllStockLogsQuery
 	if err := c.Bind().Query(&q); err != nil {
@@ -67,8 +88,10 @@ func (h *Handler) GetStockLogsByBranchId(c fiber.Ctx) error {
 // AddStockLogMovement POST /api/stock-logs (receive / expired / damaged / internal / adjust)
 func (h *Handler) AddStockLogMovement(c fiber.Ctx) error {
 
-	userRole, _ := c.Locals("role").(string)
-	sessionBranchId, _ := c.Locals("branchId").(string)
+	userRole, sessionBranchId, ok := callerRoleAndBranch(c)
+	if !ok {
+		return _package.SendError(c, errLoginRequired, "stock-log")
+	}
 
 	var req AddStockLogMovementRequest
 	if err := c.Bind().Body(&req); err != nil {
@@ -86,8 +109,10 @@ func (h *Handler) AddStockLogMovement(c fiber.Ctx) error {
 
 func (h *Handler) TransferStockLog(c fiber.Ctx) error {
 
-	userRole, _ := c.Locals("role").(string)
-	sessionBranchId, _ := c.Locals("branchId").(string)
+	userRole, sessionBranchId, ok := callerRoleAndBranch(c)
+	if !ok {
+		return _package.SendError(c, errLoginRequired, "stock-log")
+	}
 
 	var req TransferStockLogRequest
 	if err := c.Bind().Body(&req); err != nil {
