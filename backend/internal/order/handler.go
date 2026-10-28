@@ -11,6 +11,9 @@ import (
 // errLoginRequired ตอบ 401 เมื่อไม่มีผู้ใช้ (ยังไม่ login)
 var errLoginRequired = _package.NewAppError("Login required", _package.CodeUnauthorized, "")
 
+// errInvalidQuery ตอบ 400 เมื่ออ่าน query ไม่ได้ (ไม่ส่งข้อความ error ดิบของ library ออกไป)
+var errInvalidQuery = _package.NewAppError("Invalid query", _package.CodeValidation, "query string is invalid")
+
 type Handler struct {
 	service Service
 }
@@ -57,7 +60,7 @@ func (h *Handler) List(c fiber.Ctx) error {
 
 	var q ListOrdersQuery
 	if err := c.Bind().Query(&q); err != nil {
-		return _package.SendError(c, _package.NewAppError("Invalid query", _package.CodeValidation, err.Error()), "order")
+		return _package.SendError(c, errInvalidQuery, "order")
 	}
 
 	orders, err := h.service.List(c.Context(), user, q)
