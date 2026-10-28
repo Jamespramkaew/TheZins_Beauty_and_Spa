@@ -8,13 +8,13 @@ import (
 
 // GetAllStockQuantitiesQuery = ค่าจาก query string ของ GET /api/stock-logs/quantities
 type GetAllStockQuantitiesQuery struct {
-	BranchID string `query:"branchId"` // admin เท่านั้น ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง ว่าง (admin) = ทุกสาขา
-	Search   string `query:"search"`   // ค้นชื่อสินค้า
-	Category string `query:"category"` // premium | normal ว่าง = ทั้งหมด
-	LowStock bool   `query:"lowStock"` // true = เฉพาะที่ยอดคงเหลือ <= min_qty
-	Active   string `query:"active"`   // true | false | all ว่าง = true (all รวมสินค้าที่ถูก soft delete)
-	Page     int    `query:"page"`     // 0 = 1
-	PageSize int    `query:"pageSize"` // 0 = 20 สูงสุด 100
+	BranchID string `query:"branch_id"` // admin เท่านั้น ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง ว่าง (admin) = ทุกสาขา
+	Search   string `query:"search"`    // ค้นชื่อสินค้า
+	Category string `query:"category"`  // premium | normal ว่าง = ทั้งหมด
+	LowStock string `query:"low_stock"` // true | false ว่าง = false (true = เฉพาะที่ยอดคงเหลือ <= min_qty)
+	Active   string `query:"active"`    // true | false | all ว่าง = true (all รวมสินค้าที่ถูก soft delete)
+	Page     string `query:"page"`      // ว่าง = 1
+	PageSize string `query:"page_size"` // ว่าง = 20 สูงสุด 100
 }
 
 // StockQuantity = ยอดคงเหลือของสินค้า 1 ชนิดใน 1 สาขา (นับเฉพาะของที่ยังไม่เปิด)
@@ -34,16 +34,16 @@ type StockQuantity struct {
 
 // GetAllStockLogsQuery = ค่าจาก query string ของ GET /api/stock-logs
 type GetAllStockLogsQuery struct {
-	StockID     string `query:"stockId"`     // สินค้าชนิดเดียว
-	BranchID    string `query:"branchId"`    // admin เท่านั้น ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง ว่าง (admin) = ทุกสาขา
-	LogType     string `query:"logType"`     // receive | sale | use | open | damaged | expired | internal | transfer | adjust | count_diff
-	Direction   string `query:"direction"`   // in (qty_change > 0) | out (qty_change < 0) ว่าง = ทั้งหมด
-	From        string `query:"from"`        // YYYY-MM-DD (เวลาไทย) นับตั้งแต่ 00:00 ของวันนั้น
-	To          string `query:"to"`          // YYYY-MM-DD (เวลาไทย) นับถึงสิ้นวันนั้น
-	OrderItemID string `query:"orderItemId"` // log ที่เกิดจากรายการขายนี้
-	UsageID     string `query:"usageId"`     // log ที่เกิดจากการใช้บริการนี้
-	Page        int    `query:"page"`        // 0 = 1
-	PageSize    int    `query:"pageSize"`    // 0 = 20 สูงสุด 100
+	StockID     string `query:"stock_id"`      // สินค้าชนิดเดียว
+	BranchID    string `query:"branch_id"`     // admin เท่านั้น ส่วนบัญชีสาขาถูกบังคับเป็นสาขาตัวเอง ว่าง (admin) = ทุกสาขา
+	LogType     string `query:"log_type"`      // receive | sale | use | open | damaged | expired | internal | transfer | adjust | count_diff
+	Direction   string `query:"direction"`     // in (qty_change > 0) | out (qty_change < 0) ว่าง = ทั้งหมด
+	From        string `query:"from"`          // YYYY-MM-DD (เวลาไทย) นับตั้งแต่ 00:00 ของวันนั้น
+	To          string `query:"to"`            // YYYY-MM-DD (เวลาไทย) นับถึงสิ้นวันนั้น
+	OrderItemID string `query:"order_item_id"` // log ที่เกิดจากรายการขายนี้
+	UsageID     string `query:"usage_id"`      // log ที่เกิดจากการใช้บริการนี้
+	Page        string `query:"page"`          // ว่าง = 1
+	PageSize    string `query:"page_size"`     // ว่าง = 20 สูงสุด 100
 }
 
 // StockLogResponse = แถวประวัติสต็อก 1 แถวใน GET /api/stock-logs (เฉพาะฟิลด์ที่หน้าจอต้องใช้)
@@ -109,10 +109,10 @@ func toStockLogResponse(l models.StockLog) StockLogResponse {
 
 // AddStockLogMovementRequest = request body ของ POST /api/stock-logs
 type AddStockLogMovementRequest struct {
-	Type       string `json:"type"`       // receive | expired | damaged | internal | adjust
-	BranchID   string `json:"branchId"`   // admin ต้องส่ง ส่วนบัญชีสาขาถูกบังคับเป็นสาขาใน session
-	StockID    string `json:"stockId"`    // ต้องมีอยู่จริงและไม่ถูกลบ
-	EmployeeID string `json:"employeeId"` // พนักงาน active ของสาขาเดียวกับรายการ
+	Type       string `json:"type"`        // receive | expired | damaged | internal | adjust
+	BranchID   string `json:"branch_id"`   // admin ต้องส่ง ส่วนบัญชีสาขาถูกบังคับเป็นสาขาใน session
+	StockID    string `json:"stock_id"`    // ต้องมีอยู่จริงและไม่ถูกลบ
+	EmployeeID string `json:"employee_id"` // พนักงาน active ของสาขาเดียวกับรายการ
 	// receive/expired/damaged/internal: ต้องเป็นบวก server ใส่เครื่องหมายให้
 	// adjust: ส่งพร้อมเครื่องหมาย (+ เพิ่ม / - ลด) ห้ามเป็น 0
 	Qty  int    `json:"qty"`
@@ -121,11 +121,11 @@ type AddStockLogMovementRequest struct {
 
 // TransferStockLog = request body ของ POST /api/stock-logs/transfer
 type TransferStockLogRequest struct {
-	StockID      string `json:"stockId"`
+	StockID      string `json:"stock_id"`
 	Type         string `json:"type"`
-	FromBranchId string `json:"fromBranchId"`
-	ToBranchId   string `json:"toBranchId"`
-	EmployeeID   string `json:"employeeId"`
+	FromBranchId string `json:"from_branch_id"`
+	ToBranchId   string `json:"to_branch_id"`
+	EmployeeID   string `json:"employee_id"`
 	Qty          int    `json:"qty"`
 	Note         string `json:"-"` // client ไม่ต้องส่ง service สร้างให้เองว่าย้ายจากไหนไปไหน
 }

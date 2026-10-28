@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"backend/internal/currentuser"
 	"backend/internal/models"
 	_package "backend/package"
 
@@ -74,13 +75,17 @@ func (m *mockService) GetStockLogsByBranchId(ctx context.Context, role, branch s
 // ---------- Helpers ----------
 
 // newTestApp ลงทะเบียนเฉพาะ handler (ข้าม AuthMiddleware จริง)
-// แล้วตั้ง role/branchId ใน Locals แทน เหมือนที่ middleware จริงทำ
+// แล้ววางผู้ใช้ด้วย currentuser.Set เหมือนที่ AuthMiddleware จริงทำ
+// branchID "" = admin (BranchID เป็น nil)
 func newTestApp(svc Service, role, branchID string) *fiber.App {
 	h := NewHandler(svc)
 	app := fiber.New()
 	app.Use(func(c fiber.Ctx) error {
-		c.Locals("role", role)
-		c.Locals("branchId", branchID)
+		user := &currentuser.CurrentUser{Role: role}
+		if branchID != "" {
+			user.BranchID = &branchID
+		}
+		currentuser.Set(c, user)
 		return c.Next()
 	})
 	app.Get("/stock-logs/quantities", h.GetAllStockQuantities)
@@ -175,9 +180,9 @@ func TestHandler_GetStockLogs_EmptyDataIsArray(t *testing.T) {
 
 func TestHandler_GetStockLogs_BindsQueryString(t *testing.T) {
 	svc := &mockService{}
-	path := "/stock-logs?stockId=" + validStockID + "&branchId=" + validBranchID +
-		"&logType=open&direction=out&from=2026-10-01&to=2026-10-31" +
-		"&orderItemId=" + validOrderItemID + "&usageId=" + validUsageID + "&page=2&pageSize=50"
+	path := "/stock-logs?stock_id=" + validStockID + "&branch_id=" + validBranchID +
+		"&log_type=open&direction=out&from=2026-10-01&to=2026-10-31" +
+		"&order_item_id=" + validOrderItemID + "&usage_id=" + validUsageID + "&page=2&page_size=50"
 
 	resp, _ := doGet(t, newTestApp(svc, "admin", ""), path)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -185,7 +190,7 @@ func TestHandler_GetStockLogs_BindsQueryString(t *testing.T) {
 	assert.Equal(t, GetAllStockLogsQuery{
 		StockID: validStockID, BranchID: validBranchID, LogType: "open", Direction: "out",
 		From: "2026-10-01", To: "2026-10-31", OrderItemID: validOrderItemID, UsageID: validUsageID,
-		Page: 2, PageSize: 50,
+		Page: "2", PageSize: "50",
 	}, svc.lastLogQuery)
 }
 
@@ -196,15 +201,6 @@ func TestHandler_GetStockLogs_PassesRoleAndBranchFromSession(t *testing.T) {
 
 	assert.Equal(t, "branch", svc.lastRole)
 	assert.Equal(t, validBranchID, svc.lastBranch)
-}
-
-func TestHandler_GetStockLogs_InvalidQueryType_Returns400(t *testing.T) {
-	svc := &mockService{}
-	resp, body := doGet(t, newTestApp(svc, "admin", ""), "/stock-logs?page=abc")
-
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	assert.Equal(t, false, body["success"])
-	assert.Equal(t, _package.CodeValidation, errorOf(t, body)["type"])
 }
 
 func TestHandler_GetStockLogs_ServiceErrorMapping(t *testing.T) {
@@ -275,15 +271,15 @@ func TestHandler_GetQuantities_EmptyDataIsArray(t *testing.T) {
 
 func TestHandler_GetQuantities_BindsQueryString(t *testing.T) {
 	svc := &mockService{}
-	path := "/stock-logs/quantities?branchId=" + validBranchID +
+	path := "/stock-logs/quantities?branch_id=" + validBranchID +
 		"&search=" + "%E0%B8%84%E0%B8%A3%E0%B8%B5%E0%B8%A1" + // "ครีม" (URL-encoded)
-		"&category=premium&lowStock=true&active=all&page=3&pageSize=10"
+		"&category=premium&low_stock=true&active=all&page=3&page_size=10"
 
 	resp, _ := doGet(t, newTestApp(svc, "admin", ""), path)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	assert.Equal(t, GetAllStockQuantitiesQuery{
-		BranchID: validBranchID, Search: "ครีม", Category: "premium", LowStock: true, Active: "all", Page: 3, PageSize: 10,
+		BranchID: validBranchID, Search: "ครีม", Category: "premium", LowStock: "true", Active: "all", Page: "3", PageSize: "10",
 	}, svc.lastQuantityQuery)
 }
 
@@ -294,13 +290,6 @@ func TestHandler_GetQuantities_PassesRoleAndBranchFromSession(t *testing.T) {
 
 	assert.Equal(t, "branch", svc.lastRole)
 	assert.Equal(t, validBranchID, svc.lastBranch)
-}
-
-func TestHandler_GetQuantities_InvalidQueryType_Returns400(t *testing.T) {
-	resp, body := doGet(t, newTestApp(&mockService{}, "admin", ""), "/stock-logs/quantities?lowStock=maybe")
-
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	assert.Equal(t, _package.CodeValidation, errorOf(t, body)["type"])
 }
 
 func TestHandler_GetQuantities_ServiceErrorMapping(t *testing.T) {
@@ -331,8 +320,8 @@ func TestHandler_GetQuantities_ServiceErrorMapping(t *testing.T) {
 // ---------- POST /stock-logs ----------
 
 func validMovementBody() string {
-	return `{"type":"receive","branchId":"` + validBranchID + `","stockId":"` + validStockID +
-		`","employeeId":"` + validEmployeeID + `","qty":10,"note":"รับของ"}`
+	return `{"type":"receive","branch_id":"` + validBranchID + `","stock_id":"` + validStockID +
+		`","employee_id":"` + validEmployeeID + `","qty":10,"note":"รับของ"}`
 }
 
 func TestHandler_AddMovement_Success201(t *testing.T) {
@@ -479,17 +468,49 @@ func TestRegisterRoutes_RequiresAuth(t *testing.T) {
 }
 
 // stock_logs เป็น ledger แบบ append-only: ต้องไม่มี route แก้/ลบ (เพิ่มได้ผ่าน POST เท่านั้น)
+// เช็คจากตาราง route ตรงๆ เพราะยามที่ group ตอบ 401 ก่อนจะถึง 404 / 405
 func TestRegisterRoutes_NoUpdateOrDelete(t *testing.T) {
-	app := fiber.New(fiber.Config{ErrorHandler: _package.FiberErrorHandler})
+	app := fiber.New()
 	NewHandler(&mockService{}).RegisterRoutes(app.Group("/api"))
 
-	for _, method := range []string{http.MethodPatch, http.MethodPut, http.MethodDelete} {
-		t.Run(method, func(t *testing.T) {
-			resp, err := app.Test(httptest.NewRequest(method, "/api/stock-logs", nil))
-			require.NoError(t, err)
-			defer resp.Body.Close()
+	for _, r := range app.GetRoutes(true) {
+		if strings.HasPrefix(r.Path, "/api/stock-logs") {
+			assert.NotContains(t, []string{http.MethodPatch, http.MethodPut, http.MethodDelete}, r.Method, r.Path)
+		}
+	}
+}
 
-			assert.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.StatusCode)
+// ไม่มีผู้ใช้ใน request (ไม่ได้ผ่าน AuthMiddleware) → 401 และไม่เรียก service
+func TestHandler_NoCurrentUser_Unauthorized(t *testing.T) {
+	svc := &mockService{}
+	app := fiber.New()
+	app.Post("/stock-logs", NewHandler(svc).AddStockLogMovement)
+
+	resp, _ := doPost(t, app, "/stock-logs", `{"type":"receive"}`)
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Equal(t, 0, svc.addCalls, "service ต้องไม่ถูกเรียก")
+}
+
+// query ผิด → 400 พร้อมข้อความที่ service เขียนเอง ไม่ใช่ข้อความดิบของ library
+// ใช้ service จริง (repo เป็น mock) เพราะการแปลง query อยู่ใน service
+func TestHandler_InvalidQuery_Returns400(t *testing.T) {
+	tests := []struct {
+		path       string
+		wantDetail string
+	}{
+		{"/stock-logs?page=abc", "page must be a number between 1 and 1000000"},
+		{"/stock-logs/quantities?page_size=0", "page_size must be a number between 1 and 100"},
+		{"/stock-logs/quantities?low_stock=maybe", "low_stock must be true or false"},
+	}
+	svc := NewService(&mockRepo{}, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{})
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			resp, body := doGet(t, newTestApp(svc, "admin", ""), tt.path)
+
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			assert.Equal(t, _package.CodeValidation, errorOf(t, body)["type"])
+			assert.Equal(t, tt.wantDetail, errorOf(t, body)["details"])
 		})
 	}
 }

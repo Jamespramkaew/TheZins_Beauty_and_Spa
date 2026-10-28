@@ -615,8 +615,8 @@ func TestGetContainers_Validation(t *testing.T) {
 		{"status ผิด", adminUser(), ContainerQuery{StockID: validStockID, Status: "weird"}},
 		{"page = 0 ติดลบ", adminUser(), ContainerQuery{StockID: validStockID, Page: "-1"}},
 		{"page ไม่ใช่ตัวเลข", adminUser(), ContainerQuery{StockID: validStockID, Page: "abc"}},
-		{"pageSize เกิน 100", adminUser(), ContainerQuery{StockID: validStockID, PageSize: "101"}},
-		{"admin ส่ง branchId ไม่ใช่ UUID", adminUser(), ContainerQuery{StockID: validStockID, BranchID: "zzz"}},
+		{"page_size เกิน 100", adminUser(), ContainerQuery{StockID: validStockID, PageSize: "101"}},
+		{"admin ส่ง branch_id ไม่ใช่ UUID", adminUser(), ContainerQuery{StockID: validStockID, BranchID: "zzz"}},
 	}
 
 	for _, tt := range tests {
@@ -638,7 +638,7 @@ func TestGetContainers_Defaults(t *testing.T) {
 	assert.Equal(t, StatusOpen, repo.lastStatus)
 	assert.Equal(t, 1, repo.lastPage)
 	assert.Equal(t, 20, repo.lastPageSize)
-	assert.Equal(t, "", repo.lastBranchID, "admin ไม่ส่ง branchId = ทุกสาขา")
+	assert.Equal(t, "", repo.lastBranchID, "admin ไม่ส่ง branch_id = ทุกสาขา")
 	assert.Equal(t, 1, meta.Page)
 }
 
@@ -721,7 +721,7 @@ func TestParseBoundedInt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseBoundedInt("pageSize", tt.raw, 20, 100)
+			got, err := parseBoundedInt("page_size", tt.raw, 20, 100)
 
 			if tt.wantErr {
 				requireAppError(t, err, _package.CodeValidation)

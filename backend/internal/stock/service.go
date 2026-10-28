@@ -85,7 +85,7 @@ func (s *service) GetStockContainersByStockID(ctx context.Context, user *current
 	if err != nil {
 		return nil, noMeta, err
 	}
-	pageSize, err := parseBoundedInt("pageSize", q.PageSize, defaultPageSize, maxPageSize)
+	pageSize, err := parseBoundedInt("page_size", q.PageSize, defaultPageSize, maxPageSize)
 	if err != nil {
 		return nil, noMeta, err
 	}
@@ -94,7 +94,7 @@ func (s *service) GetStockContainersByStockID(ctx context.Context, user *current
 	if user.Role == "admin" {
 		branchId = strings.TrimSpace(q.BranchID)
 		if branchId != "" && !uuidPattern.MatchString(branchId) {
-			return nil, noMeta, invalid("branchId must be a valid UUID")
+			return nil, noMeta, invalid("branch_id must be a valid UUID")
 		}
 	} else {
 		if user.BranchID == nil || *user.BranchID == "" {

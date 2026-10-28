@@ -23,10 +23,10 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	stocks := router.Group("/stocks", middleware.AuthMiddleware)
 	stocks.Get("/", h.GetAllStock)
 	stocks.Get("/:id/containers", h.GetStockContainersByStockID)
-	stocks.Post("/", middleware.ReqEmptyCheck, h.AddStock)
-	stocks.Patch("/:id", middleware.ReqEmptyCheck, h.UpdateStockById)
-	stocks.Delete("/:id", h.DeleteStockById)
-	stocks.Post("/:id/restore", h.RestoreStockById)
+	stocks.Post("/", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.AddStock)
+	stocks.Patch("/:id", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.UpdateStockById)
+	stocks.Delete("/:id", middleware.RequireAdminMiddleware, h.DeleteStockById)
+	stocks.Post("/:id/restore", middleware.RequireAdminMiddleware, h.RestoreStockById)
 }
 
 // Get All Stock GET /api/stocks
@@ -40,7 +40,7 @@ func (h *Handler) GetAllStock(c fiber.Ctx) error {
 		_package.SuccessResponse("Stocks retrieved successfully", stocks))
 }
 
-// GetStockContainersByStockID GET /api/stocks/:id/containers?status=open|closed|all&branchId=&page=1&pageSize=20
+// GetStockContainersByStockID GET /api/stocks/:id/containers?status=open|closed|all&branch_id=&page=1&page_size=20
 func (h *Handler) GetStockContainersByStockID(c fiber.Ctx) error {
 
 	user, ok := currentuser.FromCtx(c)
@@ -52,10 +52,10 @@ func (h *Handler) GetStockContainersByStockID(c fiber.Ctx) error {
 
 	q := ContainerQuery{
 		StockID:  c.Params("id"),
-		BranchID: c.Query("branchId"),
+		BranchID: c.Query("branch_id"),
 		Status:   c.Query("status"),
 		Page:     c.Query("page"),
-		PageSize: c.Query("pageSize"),
+		PageSize: c.Query("page_size"),
 	}
 
 	containers, meta, err := h.service.GetStockContainersByStockID(c.Context(), user, q)
@@ -67,18 +67,6 @@ func (h *Handler) GetStockContainersByStockID(c fiber.Ctx) error {
 }
 
 func (h *Handler) AddStock(c fiber.Ctx) error {
-
-	user, ok := currentuser.FromCtx(c)
-	if !ok {
-		return _package.SendError(c,
-			_package.NewAppError("Unauthorized", _package.CodeUnauthorized, "User not found in context"),
-			"stock")
-	}
-
-	if user.Role != "admin" {
-		return _package.SendJSON(c, fiber.StatusForbidden,
-			_package.ErrorResponse("Access denied", _package.CodeForbidden, "Only admin can create stock"))
-	}
 
 	var req AddStockRequest
 
@@ -96,18 +84,6 @@ func (h *Handler) AddStock(c fiber.Ctx) error {
 }
 
 func (h *Handler) UpdateStockById(c fiber.Ctx) error {
-
-	user, ok := currentuser.FromCtx(c)
-	if !ok {
-		return _package.SendError(c,
-			_package.NewAppError("Unauthorized", _package.CodeUnauthorized, "User not found in context"),
-			"stock")
-	}
-
-	if user.Role != "admin" {
-		return _package.SendJSON(c, fiber.StatusForbidden,
-			_package.ErrorResponse("Access denied", _package.CodeForbidden, "Only admin can update stock"))
-	}
 
 	stockId := c.Params("id")
 
@@ -221,18 +197,6 @@ func wholeNumber(val any) (int, bool) {
 // DeleteStockById DELETE /api/stocks/:id
 func (h *Handler) DeleteStockById(c fiber.Ctx) error {
 
-	user, ok := currentuser.FromCtx(c)
-	if !ok {
-		return _package.SendError(c,
-			_package.NewAppError("Unauthorized", _package.CodeUnauthorized, "User not found in context"),
-			"stock")
-	}
-
-	if user.Role != "admin" {
-		return _package.SendJSON(c, fiber.StatusForbidden,
-			_package.ErrorResponse("Access denied", _package.CodeForbidden, "Only admin can delete stock"))
-	}
-
 	stockId := c.Params("id")
 
 	err := h.service.DeleteStockById(c.Context(), stockId)
@@ -246,18 +210,6 @@ func (h *Handler) DeleteStockById(c fiber.Ctx) error {
 
 // RestoreStockById POST /api/stocks/:id/restore
 func (h *Handler) RestoreStockById(c fiber.Ctx) error {
-
-	user, ok := currentuser.FromCtx(c)
-	if !ok {
-		return _package.SendError(c,
-			_package.NewAppError("Unauthorized", _package.CodeUnauthorized, "User not found in context"),
-			"stock")
-	}
-
-	if user.Role != "admin" {
-		return _package.SendJSON(c, fiber.StatusForbidden,
-			_package.ErrorResponse("Access denied", _package.CodeForbidden, "Only admin can restore stock"))
-	}
 
 	stockId := c.Params("id")
 

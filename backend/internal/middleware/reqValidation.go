@@ -2,14 +2,14 @@ package middleware
 
 import (
 	"encoding/json"
+
 	_package "backend/package"
 
 	"github.com/gofiber/fiber/v3"
 )
 
-
 func ReqEmptyCheck(c fiber.Ctx) error {
-	
+
 	body := c.Body()
 
 	// 1. ตรวจสอบว่า body ว่างไหม
@@ -19,12 +19,11 @@ func ReqEmptyCheck(c fiber.Ctx) error {
 			fiber.StatusBadRequest,
 			_package.ErrorResponse(
 				"Request body is required",
-				"VALIDATION_ERROR",
+				_package.CodeValidation,
 				"Request body cannot be empty",
 			),
 		)
 	}
-
 
 	var jsonData map[string]interface{}
 	if err := json.Unmarshal(body, &jsonData); err != nil {
@@ -33,25 +32,23 @@ func ReqEmptyCheck(c fiber.Ctx) error {
 			fiber.StatusBadRequest,
 			_package.ErrorResponse(
 				"Invalid JSON format",
-				"VALIDATION_ERROR",
+				_package.CodeValidation,
 				"Request body must be valid JSON object",
 			),
 		)
 	}
 
-	
 	if len(jsonData) == 0 {
 		return _package.SendJSON(
 			c,
 			fiber.StatusBadRequest,
 			_package.ErrorResponse(
 				"Request body is empty",
-				"VALIDATION_ERROR",
+				_package.CodeValidation,
 				"Request body must contain at least one field",
 			),
 		)
 	}
 
-	
 	return c.Next()
 }
