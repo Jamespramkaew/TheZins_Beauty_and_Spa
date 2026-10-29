@@ -31,6 +31,7 @@ type UpdateCourseRequest struct {
 
 // GetAllCourseQuery = query string ของ GET /api/courses (รับเป็นข้อความ แปลงใน service)
 type GetAllCourseQuery struct {
+	Search   string // ค้นชื่อคอร์ส (ไม่สนตัวพิมพ์เล็กใหญ่) ว่าง = ทั้งหมด
 	Page     string // ว่าง = 1
 	PageSize string // ว่าง = 20 สูงสุด 100
 }

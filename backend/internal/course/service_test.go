@@ -23,6 +23,7 @@ type fakeRepo struct {
 	hardErr     error           // error ที่ HardDeleteCourse จะคืน (จำลอง FK)
 	softDeleted []string
 	hardDeleted []string
+	lastSearch  string
 }
 
 func (r *fakeRepo) CheckCourseHasRelation(ctx context.Context, courseId string) (bool, error) {
@@ -42,7 +43,8 @@ func (r *fakeRepo) HardDeleteCourse(ctx context.Context, courseId string) error 
 	return nil
 }
 
-func (r *fakeRepo) GetAllCourse(ctx context.Context, page, pageSize int) ([]models.Course, int64, error) {
+func (r *fakeRepo) GetAllCourse(ctx context.Context, search string, page, pageSize int) ([]models.Course, int64, error) {
+	r.lastSearch = search
 	return r.courses, int64(len(r.courses)), nil
 }
 
@@ -227,5 +229,42 @@ func TestDeleteCourse(t *testing.T) {
 				t.Errorf("hard deleted = %v, want %v", got, tt.wantHard)
 			}
 		})
+	}
+}
+
+func TestGetAllCourse_TrimsSearchAndValidatesPaging(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo)
+
+	_, meta, err := svc.GetAllCourse(context.Background(), GetAllCourseQuery{Search: "  หน้าใส  ", Page: "2", PageSize: "5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.lastSearch != "หน้าใส" {
+		t.Errorf("search = %q, want trimmed %q", repo.lastSearch, "หน้าใส")
+	}
+	if meta.Page != 2 || meta.PageSize != 5 {
+		t.Errorf("meta = %+v, want page 2 size 5", meta)
+	}
+
+	_, _, err = svc.GetAllCourse(context.Background(), GetAllCourseQuery{PageSize: "101"})
+	if errCode(err) != _package.CodeValidation {
+		t.Errorf("page_size over 100 must be 400, got %v", err)
+	}
+}
+
+func TestEscapeLike(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"หน้าใส", "หน้าใส"},
+		{"", ""},
+		{"100%", `100\%`},
+		{"a_b", `a\_b`},
+		{`a\b`, `a\\b`},
+		{`%_\`, `\%\_\\`},
+	}
+	for _, tt := range tests {
+		if got := escapeLike(tt.in); got != tt.want {
+			t.Errorf("escapeLike(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }

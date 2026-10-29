@@ -36,7 +36,7 @@ func (s *service) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]mode
 	if err != nil {
 		return nil, _package.PageMeta{}, err
 	}
-	courses, total, err := s.repository.GetAllCourse(ctx, page, pageSize)
+	courses, total, err := s.repository.GetAllCourse(ctx, strings.TrimSpace(q.Search), page, pageSize)
 	if err != nil {
 		return nil, _package.PageMeta{}, err
 	}

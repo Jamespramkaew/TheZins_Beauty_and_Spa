@@ -2,6 +2,7 @@ package course
 
 import (
 	"context"
+	"strings"
 
 	"backend/internal/models"
 
@@ -9,7 +10,7 @@ import (
 )
 
 type Repository interface {
-	GetAllCourse(ctx context.Context, page, pageSize int) ([]models.Course, int64, error)
+	GetAllCourse(ctx context.Context, search string, page, pageSize int) ([]models.Course, int64, error)
 	FindCourseByName(ctx context.Context, name string) (*models.Course, error)
 	CreateCourse(ctx context.Context, course models.Course) (models.Course, error)
 	FindCourseById(ctx context.Context, id string) (*models.Course, error)
@@ -27,10 +28,15 @@ func NewRepository(db *gorm.DB) Repository {
 	return &repository{db: db}
 }
 
-// GetAllCourse คืนคอร์สทีละหน้า เรียงตามชื่อ · คืนจำนวนทั้งหมด (total) ไว้ทำ meta
-func (r *repository) GetAllCourse(ctx context.Context, page, pageSize int) ([]models.Course, int64, error) {
+// GetAllCourse คืนคอร์สทีละหน้า เรียงตามชื่อ · search ว่าง = ทุกคอร์ส
+// คืนจำนวนที่ตรงเงื่อนไขทั้งหมด (total) ไว้ทำ meta
+func (r *repository) GetAllCourse(ctx context.Context, search string, page, pageSize int) ([]models.Course, int64, error) {
+	all := r.db.WithContext(ctx).Model(&models.Course{})
+	if search != "" {
+		all = all.Where("name ILIKE ?", "%"+escapeLike(search)+"%")
+	}
 	// Session ทำให้ใช้ query เดียวกันซ้ำได้ทั้งตอน Count และ Find
-	all := r.db.WithContext(ctx).Model(&models.Course{}).Session(&gorm.Session{})
+	all = all.Session(&gorm.Session{})
 
 	var total int64
 	if err := all.Count(&total).Error; err != nil {
@@ -48,6 +54,11 @@ func (r *repository) GetAllCourse(ctx context.Context, page, pageSize int) ([]mo
 		return nil, 0, err
 	}
 	return courses, total, nil
+}
+
+// escapeLike กัน % และ _ ที่ user พิมพ์มาถูกตีความเป็น wildcard ของ ILIKE
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
 // FindCourseByName ค้นหาคอร์สตามชื่อ (รวมทั้งที่ถูกลบด้วย soft delete)

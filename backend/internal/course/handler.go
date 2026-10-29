@@ -28,9 +28,10 @@ func (h *Handler) registerRoutes(router fiber.Router, auth fiber.Handler) {
 	courses.Delete("/:id", middleware.RequireAdminMiddleware, h.DeleteCourseById)
 }
 
-// GetAllCourse GET /api/courses?page=&page_size=
+// GetAllCourse GET /api/courses?search=&page=&page_size=
 func (h *Handler) GetAllCourse(c fiber.Ctx) error {
 	q := GetAllCourseQuery{
+		Search:   c.Query("search"),
 		Page:     c.Query("page"),
 		PageSize: c.Query("page_size"),
 	}

@@ -224,7 +224,7 @@ func TestCourseRepo_GetAllCourse_PagesWithoutDuplicatesAndExcludesDeleted(t *tes
 	var names []string
 	pages := int(wantTotal+1) / 2
 	for page := 1; page <= pages; page++ {
-		rows, total, err := repo.GetAllCourse(ctx, page, 2)
+		rows, total, err := repo.GetAllCourse(ctx, "", page, 2)
 		require.NoError(t, err)
 		assert.Equal(t, wantTotal, total, "total ต้องนับทุกคอร์สที่ยังไม่ถูกลบ ไม่ใช่แค่หน้านี้")
 		for _, r := range rows {
@@ -240,9 +240,66 @@ func TestCourseRepo_GetAllCourse_PagesWithoutDuplicatesAndExcludesDeleted(t *tes
 	assert.False(t, seen[deleted.ID], "คอร์สที่ถูก soft delete ต้องไม่โผล่")
 	assert.Equal(t, []string{prefix + "-a", prefix + "-b", prefix + "-c"}, names, "ต้องเรียงตามชื่อ")
 
-	rows, _, err := repo.GetAllCourse(ctx, pages+1, 2)
+	rows, _, err := repo.GetAllCourse(ctx, "", pages+1, 2)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "เกินหน้าสุดท้าย = ว่าง ไม่ error")
+}
+
+// ---------- Repository: search ----------
+
+func courseNames(rows []models.Course) []string {
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		names = append(names, r.Name)
+	}
+	return names
+}
+
+func TestCourseRepo_GetAllCourse_Search(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	p := uniqueName("itest-srch")
+	// ชื่อที่จะเทียบลำดับใช้ตัวพิมพ์เดียวกัน เพราะลำดับ ตัวใหญ่/ตัวเล็ก ขึ้นกับ collation ของ DB
+	mkCourse(t, tx, p+"-facial gold")
+	mkCourse(t, tx, p+"-facial basic")
+	mkCourse(t, tx, p+"-body")
+	gone := mkCourse(t, tx, p+"-facial old")
+	softDeleteCourse(t, tx, gone.ID)
+
+	rows, total, err := repo.GetAllCourse(ctx, p+"-FACIAL", 1, 20)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total, "total ต้องนับเฉพาะที่ตรงคำค้น และไม่นับตัวที่ถูกลบ")
+	assert.Equal(t, []string{p + "-facial basic", p + "-facial gold"}, courseNames(rows),
+		"ไม่สนตัวพิมพ์เล็กใหญ่ และยังเรียงตามชื่อ")
+
+	rows, total, err = repo.GetAllCourse(ctx, p+"-facial", 2, 1)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total, "แบ่งหน้าแล้ว total ยังเป็นจำนวนที่ตรงคำค้นทั้งหมด")
+	assert.Equal(t, []string{p + "-facial gold"}, courseNames(rows))
+
+	rows, total, err = repo.GetAllCourse(ctx, uniqueName("itest-nomatch"), 1, 20)
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, total)
+	assert.Empty(t, rows)
+}
+
+// % และ _ ที่พิมพ์มาต้องค้นเป็นตัวอักษรจริง ไม่ใช่ wildcard
+func TestCourseRepo_GetAllCourse_SearchEscapesWildcards(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	p := uniqueName("itest-wild")
+	mkCourse(t, tx, p+"-ลด 50% ทั้งคอร์ส")
+	mkCourse(t, tx, p+"-ลด 500 บาท")
+	mkCourse(t, tx, p+"-a_b")
+	mkCourse(t, tx, p+"-axb")
+
+	rows, _, err := repo.GetAllCourse(ctx, p+"-ลด 50%", 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, []string{p + "-ลด 50% ทั้งคอร์ส"}, courseNames(rows))
+
+	rows, _, err = repo.GetAllCourse(ctx, p+"-a_b", 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, []string{p + "-a_b"}, courseNames(rows))
 }
 
 // ---------- Repository: UpdateCourse ----------

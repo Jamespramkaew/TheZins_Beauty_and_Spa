@@ -182,11 +182,11 @@ func TestGetAllCourse_PassesSnakeCaseQueryAndReturnsMeta(t *testing.T) {
 	svc := &mockService{}
 	app := newTestApp(svc, "admin")
 
-	resp, body := doRequest(t, app, http.MethodGet, "/courses?page=2&page_size=10", "")
+	resp, body := doRequest(t, app, http.MethodGet, "/courses?search=%E0%B8%AB%E0%B8%99%E0%B9%89%E0%B8%B2&page=2&page_size=10", "")
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, true, body["success"])
-	assert.Equal(t, GetAllCourseQuery{Page: "2", PageSize: "10"}, svc.lastQuery)
+	assert.Equal(t, GetAllCourseQuery{Search: "หน้า", Page: "2", PageSize: "10"}, svc.lastQuery)
 
 	meta, ok := body["meta"].(map[string]any)
 	require.True(t, ok, "endpoint แบ่งหน้าต้องมี meta: %v", body)
