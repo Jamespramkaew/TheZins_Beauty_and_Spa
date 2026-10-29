@@ -18,6 +18,7 @@ type Service interface {
 	GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]models.Course, _package.PageMeta, error)
 	AddCourse(ctx context.Context, data AddCourseRequest) (models.Course, error)
 	UpdateCourseById(ctx context.Context, courseId string, data UpdateCourseRequest) (models.Course, error)
+	DeleteCourseById(ctx context.Context, courseId string) error
 }
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -213,6 +214,38 @@ func (s *service) UpdateCourseById(ctx context.Context, courseId string, data Up
 	}
 
 	return updatedCourse, nil
+}
+
+// DeleteCourseById ลบคอร์ส:
+// - ถ้าไม่มี Relation → Hard Delete (ลบจริง)
+// - ถ้ามี Relation → Soft Delete (เซ็ต DeletedAt) ประวัติบิล / การใช้บริการที่อ้างถึงคอร์สนี้ยังอยู่ครบ
+func (s *service) DeleteCourseById(ctx context.Context, courseId string) error {
+	if !uuidPattern.MatchString(courseId) {
+		return notFound(courseId)
+	}
+
+	existingCourse, err := s.repository.FindCourseById(ctx, courseId)
+	if err != nil {
+		return err
+	}
+	if existingCourse == nil {
+		return notFound(courseId)
+	}
+
+	hasRelation, err := s.repository.CheckCourseHasRelation(ctx, courseId)
+	if err != nil {
+		return err
+	}
+	if hasRelation {
+		return s.repository.SoftDeleteCourse(ctx, courseId)
+	}
+
+	err = s.repository.HardDeleteCourse(ctx, courseId)
+	// มีคนขายคอร์สนี้ระหว่างที่เช็คกับลบพอดี FK จะกันไว้ → ถอยไปใช้ Soft Delete แทนการตอบ 500
+	if errors.Is(err, gorm.ErrForeignKeyViolated) {
+		return s.repository.SoftDeleteCourse(ctx, courseId)
+	}
+	return err
 }
 
 // Helper Functions

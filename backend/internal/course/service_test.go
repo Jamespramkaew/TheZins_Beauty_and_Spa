@@ -18,6 +18,28 @@ import (
 type fakeRepo struct {
 	courses []models.Course
 	saved   *models.Course
+
+	related     map[string]bool // course id ที่มีตารางอื่นอ้างถึง
+	hardErr     error           // error ที่ HardDeleteCourse จะคืน (จำลอง FK)
+	softDeleted []string
+	hardDeleted []string
+}
+
+func (r *fakeRepo) CheckCourseHasRelation(ctx context.Context, courseId string) (bool, error) {
+	return r.related[courseId], nil
+}
+
+func (r *fakeRepo) SoftDeleteCourse(ctx context.Context, courseId string) error {
+	r.softDeleted = append(r.softDeleted, courseId)
+	return nil
+}
+
+func (r *fakeRepo) HardDeleteCourse(ctx context.Context, courseId string) error {
+	if r.hardErr != nil {
+		return r.hardErr
+	}
+	r.hardDeleted = append(r.hardDeleted, courseId)
+	return nil
 }
 
 func (r *fakeRepo) GetAllCourse(ctx context.Context, page, pageSize int) ([]models.Course, int64, error) {
@@ -163,6 +185,46 @@ func TestUpdateCourse_ValidDay(t *testing.T) {
 			}
 			if (got.ValidDay == nil) != (tt.want == nil) || (got.ValidDay != nil && *got.ValidDay != *tt.want) {
 				t.Errorf("valid_day = %v, want %v", got.ValidDay, tt.want)
+			}
+		})
+	}
+}
+
+func TestDeleteCourse(t *testing.T) {
+	tests := []struct {
+		name     string
+		id       string
+		related  bool
+		hardErr  error
+		wantCode string
+		wantSoft bool
+		wantHard bool
+	}{
+		{"ไม่มี relation → hard delete", idFacial, false, nil, "", false, true},
+		{"มี relation → soft delete", idFacial, true, nil, "", true, false},
+		{"ติด FK ตอน hard delete (มีคนขายพอดี) → ถอยไป soft delete", idFacial, false, gorm.ErrForeignKeyViolated, "", true, false},
+		{"คอร์สไม่มีในระบบ → 404", idMissing, false, nil, _package.CodeNotFound, false, false},
+		{"คอร์สถูก soft delete ไปแล้ว → 404", idOldSpa, false, nil, _package.CodeNotFound, false, false},
+		{"id ไม่ใช่ UUID → 404", "abc", false, nil, _package.CodeNotFound, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			repo.related = map[string]bool{tt.id: tt.related}
+			repo.hardErr = tt.hardErr
+
+			err := NewService(repo).DeleteCourseById(context.Background(), tt.id)
+			if code := errCode(err); code != tt.wantCode {
+				t.Fatalf("code = %q, want %q (err = %v)", code, tt.wantCode, err)
+			}
+			if tt.wantCode == "" && err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if got := len(repo.softDeleted) > 0; got != tt.wantSoft {
+				t.Errorf("soft deleted = %v, want %v", got, tt.wantSoft)
+			}
+			if got := len(repo.hardDeleted) > 0; got != tt.wantHard {
+				t.Errorf("hard deleted = %v, want %v", got, tt.wantHard)
 			}
 		})
 	}

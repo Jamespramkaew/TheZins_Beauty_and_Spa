@@ -14,6 +14,9 @@ type Repository interface {
 	CreateCourse(ctx context.Context, course models.Course) (models.Course, error)
 	FindCourseById(ctx context.Context, id string) (*models.Course, error)
 	UpdateCourse(ctx context.Context, course models.Course) (models.Course, error)
+	CheckCourseHasRelation(ctx context.Context, courseId string) (bool, error)
+	SoftDeleteCourse(ctx context.Context, courseId string) error
+	HardDeleteCourse(ctx context.Context, courseId string) error
 }
 
 type repository struct {
@@ -89,4 +92,37 @@ func (r *repository) UpdateCourse(ctx context.Context, course models.Course) (mo
 		return models.Course{}, err
 	}
 	return course, nil
+}
+
+// CheckCourseHasRelation เช็คว่า Course ถูกอ้างอิงจากตารางอื่นหรือไม่
+// ต้องครบทุกตารางที่มี FK course_id ชี้มาที่ courses ไม่งั้น hard delete จะติด FK
+// Relations: CourseItem (ของที่คอร์สใช้), OrderItem (เคยขายแล้ว), ServiceUsage (VIP เคยใช้บริการนี้)
+func (r *repository) CheckCourseHasRelation(ctx context.Context, courseId string) (bool, error) {
+	relatedModels := []any{
+		&models.CourseItem{},
+		&models.OrderItem{},
+		&models.ServiceUsage{},
+	}
+
+	for _, m := range relatedModels {
+		var count int64
+		err := r.db.WithContext(ctx).Model(m).Where("course_id = ?", courseId).Limit(1).Count(&count).Error
+		if err != nil {
+			return false, err
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// SoftDeleteCourse เซ็ต deleted_at (แถวยังอยู่ ประวัติที่อ้างถึงยังเปิดดูได้)
+func (r *repository) SoftDeleteCourse(ctx context.Context, courseId string) error {
+	return r.db.WithContext(ctx).Delete(&models.Course{}, "id = ?", courseId).Error
+}
+
+// HardDeleteCourse ลบ Course ออกจากฐานข้อมูลจริงๆ
+func (r *repository) HardDeleteCourse(ctx context.Context, courseId string) error {
+	return r.db.WithContext(ctx).Unscoped().Delete(&models.Course{}, "id = ?", courseId).Error
 }

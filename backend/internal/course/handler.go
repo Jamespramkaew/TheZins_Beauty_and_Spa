@@ -20,6 +20,7 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	courses.Get("", h.GetAllCourse)
 	courses.Post("", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.AddCourse)
 	courses.Patch("/:id", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.UpdateCourseById)
+	courses.Delete("/:id", middleware.RequireAdminMiddleware, h.DeleteCourseById)
 }
 
 // GetAllCourse GET /api/courses?page=&page_size=
@@ -68,4 +69,14 @@ func (h *Handler) UpdateCourseById(c fiber.Ctx) error {
 
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessResponse("Course updated successfully", course))
+}
+
+// DeleteCourseById DELETE /api/courses/:id (admin เท่านั้น เช็คที่ route)
+func (h *Handler) DeleteCourseById(c fiber.Ctx) error {
+	if err := h.service.DeleteCourseById(c.Context(), c.Params("id")); err != nil {
+		return _package.SendError(c, err, "course")
+	}
+
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessResponse("Course deleted successfully", nil))
 }
