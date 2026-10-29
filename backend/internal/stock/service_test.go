@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"backend/internal/currentuser"
 	"backend/internal/models"
 	_package "backend/package"
 
@@ -585,23 +586,42 @@ func TestRestoreStock_ConcurrentDuplicate_DBUniqueViolation_Returns409(t *testin
 
 // ---------- GetStockContainersByStockID ----------
 
+// helper สร้าง CurrentUser สำหรับ test
+func adminUser() *currentuser.CurrentUser {
+	return &currentuser.CurrentUser{
+		ID:       "admin-id",
+		Username: "admin",
+		Role:     "admin",
+		BranchID: nil,
+	}
+}
+
+func branchUser(branchID string) *currentuser.CurrentUser {
+	return &currentuser.CurrentUser{
+		ID:       "branch-user-id",
+		Username: "branch",
+		Role:     "branch",
+		BranchID: &branchID,
+	}
+}
+
 func TestGetContainers_Validation(t *testing.T) {
 	tests := []struct {
 		name string
-		role string
+		user *currentuser.CurrentUser
 		q    ContainerQuery
 	}{
-		{"stock id ไม่ใช่ UUID", "admin", ContainerQuery{StockID: "abc"}},
-		{"status ผิด", "admin", ContainerQuery{StockID: validStockID, Status: "weird"}},
-		{"page = 0 ติดลบ", "admin", ContainerQuery{StockID: validStockID, Page: "-1"}},
-		{"page ไม่ใช่ตัวเลข", "admin", ContainerQuery{StockID: validStockID, Page: "abc"}},
-		{"pageSize เกิน 100", "admin", ContainerQuery{StockID: validStockID, PageSize: "101"}},
-		{"admin ส่ง branchId ไม่ใช่ UUID", "admin", ContainerQuery{StockID: validStockID, BranchID: "zzz"}},
+		{"stock id ไม่ใช่ UUID", adminUser(), ContainerQuery{StockID: "abc"}},
+		{"status ผิด", adminUser(), ContainerQuery{StockID: validStockID, Status: "weird"}},
+		{"page = 0 ติดลบ", adminUser(), ContainerQuery{StockID: validStockID, Page: "-1"}},
+		{"page ไม่ใช่ตัวเลข", adminUser(), ContainerQuery{StockID: validStockID, Page: "abc"}},
+		{"page_size เกิน 100", adminUser(), ContainerQuery{StockID: validStockID, PageSize: "101"}},
+		{"admin ส่ง branch_id ไม่ใช่ UUID", adminUser(), ContainerQuery{StockID: validStockID, BranchID: "zzz"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := NewService(&mockRepo{}).GetStockContainersByStockID(context.Background(), tt.role, "", tt.q)
+			_, _, err := NewService(&mockRepo{}).GetStockContainersByStockID(context.Background(), tt.user, tt.q)
 
 			requireAppError(t, err, _package.CodeValidation)
 		})
@@ -611,21 +631,21 @@ func TestGetContainers_Validation(t *testing.T) {
 func TestGetContainers_Defaults(t *testing.T) {
 	repo := &mockRepo{}
 
-	_, meta, err := NewService(repo).GetStockContainersByStockID(context.Background(), "admin", "",
+	_, meta, err := NewService(repo).GetStockContainersByStockID(context.Background(), adminUser(),
 		ContainerQuery{StockID: validStockID})
 
 	require.NoError(t, err)
 	assert.Equal(t, StatusOpen, repo.lastStatus)
 	assert.Equal(t, 1, repo.lastPage)
 	assert.Equal(t, 20, repo.lastPageSize)
-	assert.Equal(t, "", repo.lastBranchID, "admin ไม่ส่ง branchId = ทุกสาขา")
+	assert.Equal(t, "", repo.lastBranchID, "admin ไม่ส่ง branch_id = ทุกสาขา")
 	assert.Equal(t, 1, meta.Page)
 }
 
 func TestGetContainers_StatusIsCaseInsensitive(t *testing.T) {
 	repo := &mockRepo{}
 
-	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), "admin", "",
+	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), adminUser(),
 		ContainerQuery{StockID: validStockID, Status: " CLOSED "})
 
 	require.NoError(t, err)
@@ -635,7 +655,7 @@ func TestGetContainers_StatusIsCaseInsensitive(t *testing.T) {
 func TestGetContainers_AdminCanPickBranch(t *testing.T) {
 	repo := &mockRepo{}
 
-	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), "admin", "",
+	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), adminUser(),
 		ContainerQuery{StockID: validStockID, BranchID: validBranchID})
 
 	require.NoError(t, err)
@@ -647,7 +667,7 @@ func TestGetContainers_BranchUserIsForcedToOwnBranch(t *testing.T) {
 	repo := &mockRepo{}
 	otherBranch := "bbbbbbbb-1111-4222-8333-944455556666"
 
-	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), "branch", validBranchID,
+	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), branchUser(validBranchID),
 		ContainerQuery{StockID: validStockID, BranchID: otherBranch})
 
 	require.NoError(t, err)
@@ -655,7 +675,8 @@ func TestGetContainers_BranchUserIsForcedToOwnBranch(t *testing.T) {
 }
 
 func TestGetContainers_BranchUserWithoutBranch_Forbidden(t *testing.T) {
-	_, _, err := NewService(&mockRepo{}).GetStockContainersByStockID(context.Background(), "branch", "",
+	emptyBranch := ""
+	_, _, err := NewService(&mockRepo{}).GetStockContainersByStockID(context.Background(), branchUser(emptyBranch),
 		ContainerQuery{StockID: validStockID})
 
 	assert.Same(t, ErrBranchRequired, err)
@@ -668,7 +689,7 @@ func TestGetContainers_PageMeta(t *testing.T) {
 		},
 	}
 
-	_, meta, err := NewService(repo).GetStockContainersByStockID(context.Background(), "admin", "",
+	_, meta, err := NewService(repo).GetStockContainersByStockID(context.Background(), adminUser(),
 		ContainerQuery{StockID: validStockID, Page: "2", PageSize: "20"})
 
 	require.NoError(t, err)
@@ -700,7 +721,7 @@ func TestParseBoundedInt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseBoundedInt("pageSize", tt.raw, 20, 100)
+			got, err := parseBoundedInt("page_size", tt.raw, 20, 100)
 
 			if tt.wantErr {
 				requireAppError(t, err, _package.CodeValidation)
@@ -909,7 +930,7 @@ func TestGetContainers_RepositoryError(t *testing.T) {
 		return nil, 0, errDB
 	}}
 
-	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), "admin", "",
+	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), adminUser(),
 		ContainerQuery{StockID: validStockID})
 
 	assert.ErrorIs(t, err, errDB)
@@ -920,7 +941,7 @@ func TestGetContainers_ExplicitStatusAllAndOpen(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			repo := &mockRepo{}
 
-			_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), "admin", "",
+			_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), adminUser(),
 				ContainerQuery{StockID: validStockID, Status: status})
 
 			require.NoError(t, err)
@@ -933,7 +954,7 @@ func TestGetContainers_ExplicitStatusAllAndOpen(t *testing.T) {
 func TestGetContainers_AdminBlankBranchIsTrimmed(t *testing.T) {
 	repo := &mockRepo{}
 
-	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), "admin", "",
+	_, _, err := NewService(repo).GetStockContainersByStockID(context.Background(), adminUser(),
 		ContainerQuery{StockID: validStockID, BranchID: "   "})
 
 	require.NoError(t, err)
@@ -941,7 +962,7 @@ func TestGetContainers_AdminBlankBranchIsTrimmed(t *testing.T) {
 }
 
 func TestGetContainers_PageUpperBound(t *testing.T) {
-	_, _, err := NewService(&mockRepo{}).GetStockContainersByStockID(context.Background(), "admin", "",
+	_, _, err := NewService(&mockRepo{}).GetStockContainersByStockID(context.Background(), adminUser(),
 		ContainerQuery{StockID: validStockID, Page: "1000001"})
 
 	requireAppError(t, err, _package.CodeValidation)

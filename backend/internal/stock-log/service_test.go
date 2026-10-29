@@ -3,6 +3,7 @@ package stocklog
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -307,28 +308,38 @@ func TestQuantities_Search(t *testing.T) {
 
 func TestQuantities_LowStockFlagPassedThrough(t *testing.T) {
 	repo := &mockRepo{}
-	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{LowStock: true})
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{LowStock: "true"})
 	require.NoError(t, err)
 	assert.True(t, repo.lastQuantity.LowStock)
+}
+
+func TestQuantities_InvalidLowStock(t *testing.T) {
+	repo := &mockRepo{}
+	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetAllStockQuantities(context.Background(), "admin", "", GetAllStockQuantitiesQuery{LowStock: "maybe"})
+	appErr := requireAppError(t, err, _package.CodeValidation)
+	assert.Contains(t, appErr.Detail, "low_stock")
+	assert.Zero(t, repo.quantityCalls)
 }
 
 func TestQuantities_Paging(t *testing.T) {
 	tests := []struct {
 		name         string
-		page, size   int
+		page, size   string
 		wantPage     int
 		wantSize     int
 		wantErr      bool
 		wantErrField string
 	}{
-		{"ไม่ส่ง = ค่าเริ่มต้น", 0, 0, defaultPage, defaultPageSize, false, ""},
-		{"ค่าปกติ", 3, 50, 3, 50, false, ""},
-		{"pageSize สูงสุด", 1, maxPageSize, 1, maxPageSize, false, ""},
-		{"pageSize เกินสูงสุด", 1, maxPageSize + 1, 0, 0, true, "pageSize"},
-		{"pageSize ติดลบ", 1, -1, 0, 0, true, "pageSize"},
-		{"page ติดลบ", -1, 10, 0, 0, true, "page"},
-		{"page เกินสูงสุด", maxPage + 1, 10, 0, 0, true, "page"},
-		{"page สูงสุด", maxPage, 10, maxPage, 10, false, ""},
+		{"ไม่ส่ง = ค่าเริ่มต้น", "", "", defaultPage, defaultPageSize, false, ""},
+		{"ค่าปกติ", "3", "50", 3, 50, false, ""},
+		{"page_size สูงสุด", "1", strconv.Itoa(maxPageSize), 1, maxPageSize, false, ""},
+		{"page_size เกินสูงสุด", "1", strconv.Itoa(maxPageSize + 1), 0, 0, true, "page_size"},
+		{"page_size ติดลบ", "1", "-1", 0, 0, true, "page_size"},
+		{"page_size เป็น 0", "1", "0", 0, 0, true, "page_size"},
+		{"page ติดลบ", "-1", "10", 0, 0, true, "page"},
+		{"page เกินสูงสุด", strconv.Itoa(maxPage + 1), "10", 0, 0, true, "page"},
+		{"page สูงสุด", strconv.Itoa(maxPage), "10", maxPage, 10, false, ""},
+		{"page ไม่ใช่ตัวเลข", "abc", "10", 0, 0, true, "page"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -435,9 +446,9 @@ func TestLogs_OptionalUUIDFilters(t *testing.T) {
 		query GetAllStockLogsQuery
 		field string
 	}{
-		{"stockId", GetAllStockLogsQuery{StockID: "bad"}, "stockId"},
-		{"orderItemId", GetAllStockLogsQuery{OrderItemID: "bad"}, "orderItemId"},
-		{"usageId", GetAllStockLogsQuery{UsageID: "bad"}, "usageId"},
+		{"stock_id", GetAllStockLogsQuery{StockID: "bad"}, "stock_id"},
+		{"order_item_id", GetAllStockLogsQuery{OrderItemID: "bad"}, "order_item_id"},
+		{"usage_id", GetAllStockLogsQuery{UsageID: "bad"}, "usage_id"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" ไม่ใช่ UUID", func(t *testing.T) {
@@ -580,16 +591,16 @@ func TestLogs_Paging(t *testing.T) {
 		assert.Equal(t, defaultPage, meta.Page)
 	})
 
-	t.Run("pageSize เกินสูงสุด", func(t *testing.T) {
+	t.Run("page_size เกินสูงสุด", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: maxPageSize + 1})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: strconv.Itoa(maxPageSize + 1)})
 		requireAppError(t, err, _package.CodeValidation)
 		assert.Zero(t, repo.logCalls)
 	})
 
 	t.Run("page ติดลบ", func(t *testing.T) {
 		repo := &mockRepo{}
-		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{Page: -3})
+		_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{Page: "-3"})
 		requireAppError(t, err, _package.CodeValidation)
 	})
 }
@@ -600,7 +611,7 @@ func TestLogs_AllFiltersPassedToRepo(t *testing.T) {
 	repo := &mockRepo{}
 	_, _, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{
 		StockID: validStockID, BranchID: validBranchID, LogType: "open", Direction: "out",
-		OrderItemID: validOrderItemID, UsageID: validUsageID, Page: 2, PageSize: 10,
+		OrderItemID: validOrderItemID, UsageID: validUsageID, Page: "2", PageSize: "10",
 	})
 	require.NoError(t, err)
 
@@ -630,7 +641,7 @@ func TestLogs_MapsModelToResponse(t *testing.T) {
 		},
 	}
 
-	items, meta, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: 20})
+	items, meta, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).GetStockLogsByBranchId(context.Background(), "admin", "", GetAllStockLogsQuery{PageSize: "20"})
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 
@@ -731,7 +742,7 @@ func TestAdd_Branch(t *testing.T) {
 
 		_, err := NewService(repo, &mockStockRepo{}, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", req)
 		appErr := requireAppError(t, err, _package.CodeValidation)
-		assert.Contains(t, appErr.Detail, "branchId")
+		assert.Contains(t, appErr.Detail, "branch_id")
 		assert.Zero(t, repo.createCalls)
 	})
 
@@ -787,12 +798,12 @@ func TestAdd_ValidationReturns400AndNeverReachesRepo(t *testing.T) {
 		{"type ห้ามในเส้นนี้: transfer", func(r *AddStockLogMovementRequest) { r.Type = "transfer" }, "type"},
 		{"qty เป็น 0", func(r *AddStockLogMovementRequest) { r.Qty = 0 }, "qty"},
 		{"qty ติดลบ", func(r *AddStockLogMovementRequest) { r.Qty = -5 }, "qty"},
-		{"stockId ว่าง", func(r *AddStockLogMovementRequest) { r.StockID = "" }, "stockId"},
-		{"stockId เป็นช่องว่างล้วน", func(r *AddStockLogMovementRequest) { r.StockID = "  " }, "stockId"},
-		{"stockId ไม่ใช่ UUID", func(r *AddStockLogMovementRequest) { r.StockID = "abc" }, "stockId"},
-		{"employeeId ว่าง", func(r *AddStockLogMovementRequest) { r.EmployeeID = "" }, "employeeId"},
-		{"employeeId เป็นช่องว่างล้วน", func(r *AddStockLogMovementRequest) { r.EmployeeID = " " }, "employeeId"},
-		{"employeeId ไม่ใช่ UUID", func(r *AddStockLogMovementRequest) { r.EmployeeID = "abc" }, "employeeId"},
+		{"stock_id ว่าง", func(r *AddStockLogMovementRequest) { r.StockID = "" }, "stock_id"},
+		{"stock_id เป็นช่องว่างล้วน", func(r *AddStockLogMovementRequest) { r.StockID = "  " }, "stock_id"},
+		{"stock_id ไม่ใช่ UUID", func(r *AddStockLogMovementRequest) { r.StockID = "abc" }, "stock_id"},
+		{"employee_id ว่าง", func(r *AddStockLogMovementRequest) { r.EmployeeID = "" }, "employee_id"},
+		{"employee_id เป็นช่องว่างล้วน", func(r *AddStockLogMovementRequest) { r.EmployeeID = " " }, "employee_id"},
+		{"employee_id ไม่ใช่ UUID", func(r *AddStockLogMovementRequest) { r.EmployeeID = "abc" }, "employee_id"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -816,7 +827,7 @@ func TestAdd_StockMustExist(t *testing.T) {
 
 		got, err := NewService(repo, stocks, &mockBranchRepo{}, &mockEmployeeRepo{}).AddStockLogMovement(context.Background(), "admin", "", validMovement())
 		appErr := requireAppError(t, err, _package.CodeValidation)
-		assert.Contains(t, appErr.Detail, "stockId")
+		assert.Contains(t, appErr.Detail, "stock_id")
 		assert.Nil(t, got)
 		assert.Zero(t, repo.createCalls)
 	})
@@ -859,7 +870,7 @@ func TestAdd_BranchMustExistAndBeActive(t *testing.T) {
 		find   func(ctx context.Context, id string) (*models.Branch, error)
 		detail string
 	}{
-		{"ไม่เจอสาขา", func(ctx context.Context, id string) (*models.Branch, error) { return nil, nil }, "branchId not found"},
+		{"ไม่เจอสาขา", func(ctx context.Context, id string) (*models.Branch, error) { return nil, nil }, "branch_id not found"},
 		{"สาขาปิดใช้งาน", func(ctx context.Context, id string) (*models.Branch, error) {
 			return &models.Branch{ID: id, IsActive: false}, nil
 		}, "branch is not active"},
@@ -906,7 +917,7 @@ func TestAdd_EmployeeMustExistBeActiveAndInSameBranch(t *testing.T) {
 		find   func(ctx context.Context, id string) (*models.Employee, error)
 		detail string
 	}{
-		{"ไม่เจอพนักงาน", func(ctx context.Context, id string) (*models.Employee, error) { return nil, nil }, "employeeId not found"},
+		{"ไม่เจอพนักงาน", func(ctx context.Context, id string) (*models.Employee, error) { return nil, nil }, "employee_id not found"},
 		{"พนักงานไม่ active", func(ctx context.Context, id string) (*models.Employee, error) {
 			return &models.Employee{ID: id, IsActive: false, BranchID: validBranchID}, nil
 		}, "employee is not active"},

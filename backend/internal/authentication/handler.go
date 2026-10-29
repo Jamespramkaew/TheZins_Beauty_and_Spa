@@ -3,6 +3,7 @@ package authentication
 import (
 	"errors"
 
+	"backend/internal/currentuser"
 	"backend/internal/middleware"
 	_package "backend/package"
 
@@ -106,14 +107,20 @@ func (h *Handler) ChangePassword(c fiber.Ctx) error {
 
 	if req.CurrentPassword == "" || req.NewPassword == "" {
 		return _package.SendError(c,
-			_package.NewAppError("Invalid request", _package.CodeValidation, "currentPassword and newPassword are required"),
+			_package.NewAppError("Invalid request", _package.CodeValidation, "current_password and new_password are required"),
 			"authentication",
 		)
 	}
 
-	username := c.Locals("username").(string)
+	user, ok := currentuser.FromCtx(c)
+	if !ok {
+		return _package.SendError(c,
+			_package.NewAppError("Unauthorized", _package.CodeUnauthorized, "User not found in context"),
+			"authentication",
+		)
+	}
 
-	if err := h.service.ChangePassword(c.Context(), username, req.CurrentPassword, req.NewPassword); err != nil {
+	if err := h.service.ChangePassword(c.Context(), user.Username, req.CurrentPassword, req.NewPassword); err != nil {
 		return _package.SendError(c, err, "authentication")
 	}
 

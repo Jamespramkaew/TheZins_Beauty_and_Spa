@@ -1,6 +1,7 @@
 package stock
 
 import (
+	"backend/internal/currentuser"
 	"backend/internal/middleware"
 	_package "backend/package"
 	"math"
@@ -19,15 +20,16 @@ func NewHandler(service Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
-	router.Get("/stock", middleware.AuthMiddleware, h.GetAllStock)
-	router.Get("/stock/:id/containers", middleware.AuthMiddleware, h.GetStockContainersByStockID)
-	router.Post("/stock", middleware.AuthMiddleware, middleware.ReqEmptyCheck, h.AddStock)
-	router.Patch("/stock/:stockId", middleware.AuthMiddleware, middleware.ReqEmptyCheck, h.UpdateStockById)
-	router.Delete("/stock/:stockId", middleware.AuthMiddleware, h.DeleteStockById)
-	router.Post("/stock/:stockId/restore", middleware.AuthMiddleware, h.RestoreStockById)
+	stocks := router.Group("/stocks", middleware.AuthMiddleware)
+	stocks.Get("/", h.GetAllStock)
+	stocks.Get("/:id/containers", h.GetStockContainersByStockID)
+	stocks.Post("/", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.AddStock)
+	stocks.Patch("/:id", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.UpdateStockById)
+	stocks.Delete("/:id", middleware.RequireAdminMiddleware, h.DeleteStockById)
+	stocks.Post("/:id/restore", middleware.RequireAdminMiddleware, h.RestoreStockById)
 }
 
-// Get All Stock GET /api/stock
+// Get All Stock GET /api/stocks
 func (h *Handler) GetAllStock(c fiber.Ctx) error {
 
 	stocks, err := h.service.GetAllStock(c.Context())
@@ -38,21 +40,25 @@ func (h *Handler) GetAllStock(c fiber.Ctx) error {
 		_package.SuccessResponse("Stocks retrieved successfully", stocks))
 }
 
-// GetStockContainersByStockID GET /api/stock/:id/containers?status=open|closed|all&branchId=&page=1&pageSize=20
+// GetStockContainersByStockID GET /api/stocks/:id/containers?status=open|closed|all&branch_id=&page=1&page_size=20
 func (h *Handler) GetStockContainersByStockID(c fiber.Ctx) error {
 
-	userRole, _ := c.Locals("role").(string)
-	sessionBranchId, _ := c.Locals("branchId").(string)
+	user, ok := currentuser.FromCtx(c)
+	if !ok {
+		return _package.SendError(c,
+			_package.NewAppError("Unauthorized", _package.CodeUnauthorized, "User not found in context"),
+			"stock")
+	}
 
 	q := ContainerQuery{
 		StockID:  c.Params("id"),
-		BranchID: c.Query("branchId"),
+		BranchID: c.Query("branch_id"),
 		Status:   c.Query("status"),
 		Page:     c.Query("page"),
-		PageSize: c.Query("pageSize"),
+		PageSize: c.Query("page_size"),
 	}
 
-	containers, meta, err := h.service.GetStockContainersByStockID(c.Context(), userRole, sessionBranchId, q)
+	containers, meta, err := h.service.GetStockContainersByStockID(c.Context(), user, q)
 	if err != nil {
 		return _package.SendError(c, err, "stock")
 	}
@@ -61,12 +67,6 @@ func (h *Handler) GetStockContainersByStockID(c fiber.Ctx) error {
 }
 
 func (h *Handler) AddStock(c fiber.Ctx) error {
-
-	userRole, _ := c.Locals("role").(string)
-	if userRole != "admin" {
-		return _package.SendJSON(c, fiber.StatusForbidden,
-			_package.ErrorResponse("Access denied", _package.CodeForbidden, "Only admin can create stock"))
-	}
 
 	var req AddStockRequest
 
@@ -85,13 +85,7 @@ func (h *Handler) AddStock(c fiber.Ctx) error {
 
 func (h *Handler) UpdateStockById(c fiber.Ctx) error {
 
-	userRole, _ := c.Locals("role").(string)
-	if userRole != "admin" {
-		return _package.SendJSON(c, fiber.StatusForbidden,
-			_package.ErrorResponse("Access denied", _package.CodeForbidden, "Only admin can update stock"))
-	}
-
-	stockId := c.Params("stockId")
+	stockId := c.Params("id")
 
 	// อ่าน raw JSON เพื่อเช็คว่า field ไหนถูกส่งมาบ้าง
 	var rawBody map[string]interface{}
@@ -102,10 +96,10 @@ func (h *Handler) UpdateStockById(c fiber.Ctx) error {
 	var req UpdateStockRequest
 
 	// StockName
-	if val, exists := rawBody["stockName"]; exists {
+	if val, exists := rawBody["stock_name"]; exists {
 		strVal, ok := val.(string)
 		if !ok {
-			return badField(c, "stockName must be a string")
+			return badField(c, "stock_name must be a string")
 		}
 		req.StockName = &strVal
 	}
@@ -130,10 +124,10 @@ func (h *Handler) UpdateStockById(c fiber.Ctx) error {
 	}
 
 	// IsSellable
-	if val, exists := rawBody["isSellable"]; exists {
+	if val, exists := rawBody["is_sellable"]; exists {
 		boolVal, ok := val.(bool)
 		if !ok {
-			return badField(c, "isSellable must be a boolean")
+			return badField(c, "is_sellable must be a boolean")
 		}
 		req.IsSellable = &boolVal
 	}
@@ -148,28 +142,28 @@ func (h *Handler) UpdateStockById(c fiber.Ctx) error {
 	}
 
 	// UsesPerUnit
-	if val, exists := rawBody["usesPerUnit"]; exists {
+	if val, exists := rawBody["uses_per_unit"]; exists {
 		intVal, ok := wholeNumber(val)
 		if !ok {
-			return badField(c, "usesPerUnit must be a whole number")
+			return badField(c, "uses_per_unit must be a whole number")
 		}
 		req.UsesPerUnit = &intVal
 	}
 
 	// MinQty
-	if val, exists := rawBody["minQty"]; exists {
+	if val, exists := rawBody["min_qty"]; exists {
 		intVal, ok := wholeNumber(val)
 		if !ok {
-			return badField(c, "minQty must be a whole number")
+			return badField(c, "min_qty must be a whole number")
 		}
 		req.MinQty = &intVal
 	}
 
 	// IsActive
-	if val, exists := rawBody["isActive"]; exists {
+	if val, exists := rawBody["is_active"]; exists {
 		boolVal, ok := val.(bool)
 		if !ok {
-			return badField(c, "isActive must be a boolean")
+			return badField(c, "is_active must be a boolean")
 		}
 		req.IsActive = &boolVal
 	}
@@ -200,16 +194,10 @@ func wholeNumber(val any) (int, bool) {
 	return int(f), true
 }
 
-// DeleteStockById DELETE /api/stock/:stockId
+// DeleteStockById DELETE /api/stocks/:id
 func (h *Handler) DeleteStockById(c fiber.Ctx) error {
 
-	userRole, _ := c.Locals("role").(string)
-	if userRole != "admin" {
-		return _package.SendJSON(c, fiber.StatusForbidden,
-			_package.ErrorResponse("Access denied", _package.CodeForbidden, "Only admin can delete stock"))
-	}
-
-	stockId := c.Params("stockId")
+	stockId := c.Params("id")
 
 	err := h.service.DeleteStockById(c.Context(), stockId)
 	if err != nil {
@@ -220,16 +208,10 @@ func (h *Handler) DeleteStockById(c fiber.Ctx) error {
 		_package.SuccessResponse("Stock deleted successfully", nil))
 }
 
-// RestoreStockById POST /api/stock/:stockId/restore
+// RestoreStockById POST /api/stocks/:id/restore
 func (h *Handler) RestoreStockById(c fiber.Ctx) error {
 
-	userRole, _ := c.Locals("role").(string)
-	if userRole != "admin" {
-		return _package.SendJSON(c, fiber.StatusForbidden,
-			_package.ErrorResponse("Access denied", _package.CodeForbidden, "Only admin can restore stock"))
-	}
-
-	stockId := c.Params("stockId")
+	stockId := c.Params("id")
 
 	stock, err := h.service.RestoreStockById(c.Context(), stockId)
 	if err != nil {

@@ -7,6 +7,7 @@ import "github.com/gofiber/fiber/v3"
 
 type CurrentUser struct {
 	ID       string
+	Username string
 	Role     string  // "admin" หรือ "branch"
 	BranchID *string // nil = admin (ไม่ผูกสาขา)
 }
