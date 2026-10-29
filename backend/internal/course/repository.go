@@ -9,7 +9,7 @@ import (
 )
 
 type Repository interface {
-	GetAllCourse(ctx context.Context) ([]models.Course, error)
+	GetAllCourse(ctx context.Context, page, pageSize int) ([]models.Course, int64, error)
 	FindCourseByName(ctx context.Context, name string) (*models.Course, error)
 	CreateCourse(ctx context.Context, course models.Course) (models.Course, error)
 }
@@ -22,12 +22,27 @@ func NewRepository(db *gorm.DB) Repository {
 	return &repository{db: db}
 }
 
-func (r *repository) GetAllCourse(ctx context.Context) ([]models.Course, error) {
-	var courses []models.Course
-	if err := r.db.WithContext(ctx).Order("name ASC").Find(&courses).Error; err != nil {
-		return nil, err
+// GetAllCourse คืนคอร์สทีละหน้า เรียงตามชื่อ · คืนจำนวนทั้งหมด (total) ไว้ทำ meta
+func (r *repository) GetAllCourse(ctx context.Context, page, pageSize int) ([]models.Course, int64, error) {
+	// Session ทำให้ใช้ query เดียวกันซ้ำได้ทั้งตอน Count และ Find
+	all := r.db.WithContext(ctx).Model(&models.Course{}).Session(&gorm.Session{})
+
+	var total int64
+	if err := all.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	return courses, nil
+
+	var courses []models.Course
+	// id เป็นตัวตัดสินเมื่อชื่อเท่ากัน ไม่งั้นข้ามหน้าแล้วแถวอาจซ้ำหรือตกหล่น
+	err := all.
+		Order("name ASC, id ASC").
+		Limit(pageSize).
+		Offset((page - 1) * pageSize).
+		Find(&courses).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return courses, total, nil
 }
 
 // FindCourseByName ค้นหาคอร์สตามชื่อ (รวมทั้งที่ถูกลบด้วย soft delete)

@@ -16,28 +16,28 @@ func NewHandler(service Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
-	router.Get("/course", middleware.AuthMiddleware, h.GetAllCourse)
-	router.Post("/course", middleware.AuthMiddleware, middleware.ReqEmptyCheck, h.AddCourse)
+	courses := router.Group("/courses", middleware.AuthMiddleware)
+	courses.Get("", h.GetAllCourse)
+	courses.Post("", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.AddCourse)
 }
 
+// GetAllCourse GET /api/courses?page=&page_size=
 func (h *Handler) GetAllCourse(c fiber.Ctx) error {
+	q := GetAllCourseQuery{
+		Page:     c.Query("page"),
+		PageSize: c.Query("page_size"),
+	}
 
-	courses, err := h.service.GetAllCourse(c.Context())
+	courses, meta, err := h.service.GetAllCourse(c.Context(), q)
 	if err != nil {
 		return _package.SendError(c, err, "course")
 	}
 	return _package.SendJSON(c, fiber.StatusOK,
-		_package.SuccessResponse("Courses retrieved successfully", courses))
+		_package.SuccessPagedResponse("Courses retrieved successfully", courses, meta))
 }
 
+// AddCourse POST /api/courses (admin เท่านั้น เช็คที่ route)
 func (h *Handler) AddCourse(c fiber.Ctx) error {
-
-	userRole, _ := c.Locals("role").(string)
-	if userRole != "admin" {
-		return _package.SendJSON(c, fiber.StatusForbidden,
-			_package.ErrorResponse("Access denied", _package.CodeForbidden, "Only admin can create course"))
-	}
-
 	var req AddCourseRequest
 
 	if err := c.Bind().Body(&req); err != nil {

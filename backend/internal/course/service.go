@@ -13,7 +13,7 @@ import (
 )
 
 type Service interface {
-	GetAllCourse(ctx context.Context) ([]models.Course, error)
+	GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]models.Course, _package.PageMeta, error)
 	AddCourse(ctx context.Context, data AddCourseRequest) (models.Course, error)
 }
 
@@ -25,8 +25,16 @@ func NewService(repository Repository) Service {
 	return &service{repository: repository}
 }
 
-func (s *service) GetAllCourse(ctx context.Context) ([]models.Course, error) {
-	return s.repository.GetAllCourse(ctx)
+func (s *service) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]models.Course, _package.PageMeta, error) {
+	page, pageSize, err := _package.ParsePaging(q.Page, q.PageSize)
+	if err != nil {
+		return nil, _package.PageMeta{}, err
+	}
+	courses, total, err := s.repository.GetAllCourse(ctx, page, pageSize)
+	if err != nil {
+		return nil, _package.PageMeta{}, err
+	}
+	return courses, _package.NewPageMeta(page, pageSize, total), nil
 }
 
 func (s *service) AddCourse(ctx context.Context, data AddCourseRequest) (models.Course, error) {

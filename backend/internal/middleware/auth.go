@@ -43,3 +43,25 @@ func AuthMiddleware(c fiber.Ctx) error {
 
 	return c.Next()
 }
+
+// RequireAdminMiddleware ตรวจสอบว่า user ที่ login เป็น admin หรือไม่
+// ใช้หลังจาก AuthMiddleware เท่านั้น
+func RequireAdminMiddleware(c fiber.Ctx) error {
+
+	user, ok := currentuser.FromCtx(c)
+	if !ok {
+		return _package.SendError(c,
+			_package.NewAppError("Forbidden", _package.CodeForbidden, "Unable to verify user role"),
+			"middleware",
+		)
+	}
+
+	if user.Role != "admin" {
+		return _package.SendError(c,
+			_package.NewAppError("Forbidden", _package.CodeForbidden, "Admin access required"),
+			"middleware",
+		)
+	}
+
+	return c.Next()
+}
