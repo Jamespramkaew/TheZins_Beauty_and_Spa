@@ -21,16 +21,13 @@ var (
 	ErrDuplicateHN = _package.NewAppError("HN number already exists", _package.CodeConflict, "hn_no already exists") // 409
 )
 
-// searchLimit = จำนวนผลค้นหาสูงสุดต่อครั้ง (V1 ยังไม่มี pagination)
-const searchLimit = 50
-
 var (
 	uuidPattern      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	citizenIDPattern = regexp.MustCompile(`^[0-9]{13}$`)
 )
 
 type Service interface {
-	Search(ctx context.Context, q string) ([]models.Customer, error)
+	Search(ctx context.Context, q SearchCustomersQuery) ([]models.Customer, _package.PageMeta, error)
 	GetByID(ctx context.Context, id string) (*models.Customer, error)
 	Create(ctx context.Context, req CreateCustomer) (*models.Customer, error)
 	Update(ctx context.Context, id string, req UpdateCustomer) (*models.Customer, error)
@@ -46,8 +43,16 @@ func NewService(repository Repository) Service {
 	return &service{repository: repository}
 }
 
-func (s *service) Search(ctx context.Context, q string) ([]models.Customer, error) {
-	return s.repository.Search(ctx, strings.TrimSpace(q), searchLimit)
+func (s *service) Search(ctx context.Context, q SearchCustomersQuery) ([]models.Customer, _package.PageMeta, error) {
+	page, pageSize, err := _package.ParsePaging(q.Page, q.PageSize)
+	if err != nil {
+		return nil, _package.PageMeta{}, err
+	}
+	customers, total, err := s.repository.Search(ctx, strings.TrimSpace(q.Q), page, pageSize)
+	if err != nil {
+		return nil, _package.PageMeta{}, err
+	}
+	return customers, _package.NewPageMeta(page, pageSize, total), nil
 }
 
 func (s *service) GetByID(ctx context.Context, id string) (*models.Customer, error) {

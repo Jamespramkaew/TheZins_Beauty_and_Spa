@@ -31,7 +31,9 @@ type CreatePayment struct {
 // ListOrdersQuery ค่าจาก query string ของ GET /api/orders (ไม่ส่งช่องไหน = ไม่กรองช่องนั้น)
 type ListOrdersQuery struct {
 	CustomerID string `query:"customer_id"`
-	From       string `query:"from"`   // YYYY-MM-DD
-	To         string `query:"to"`     // YYYY-MM-DD
-	Status     string `query:"status"` // paid / partial / unpaid
+	From       string `query:"from"`      // YYYY-MM-DD
+	To         string `query:"to"`        // YYYY-MM-DD
+	Status     string `query:"status"`    // paid / partial / unpaid
+	Page       string `query:"page"`      // ว่าง = 1
+	PageSize   string `query:"page_size"` // ว่าง = 20 สูงสุด 100
 }
