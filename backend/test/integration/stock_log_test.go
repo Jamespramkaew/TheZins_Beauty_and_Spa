@@ -728,6 +728,8 @@ func TestStockLog_Add_SignAndPersistedRow(t *testing.T) {
 			s := slStock(t, tx, uniqueName("itest-add-sign"), 0)
 			branch := mkBranch(t, tx)
 			emp := mkEmployee(t, tx, branch.ID, "manager")
+			// รับของเข้าไว้ก่อน ไม่งั้นชนิดที่ตัดออกจะโดนกันว่าสต็อกไม่พอ
+			mkStockLogBy(t, tx, s.ID, branch.ID, emp.ID, "receive", 7)
 
 			got, err := svc.AddStockLogMovement(ctx, "admin", "", stocklog.AddStockLogMovementRequest{
 				Type: tt.logType, BranchID: branch.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: 7,
@@ -757,6 +759,8 @@ func TestStockLog_Add_NoteStoredTrimmedOrNull(t *testing.T) {
 	s := slStock(t, tx, uniqueName("itest-add-note"), 0)
 	branch := mkBranch(t, tx)
 	emp := mkEmployee(t, tx, branch.ID, "manager")
+	// damaged ตัดของออก ต้องมีของพอให้ตัด 2 ครั้ง
+	mkStockLogBy(t, tx, s.ID, branch.ID, emp.ID, "receive", 2)
 
 	withNote, err := svc.AddStockLogMovement(ctx, "admin", "", stocklog.AddStockLogMovementRequest{
 		Type: "damaged", BranchID: branch.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: 1, Note: "  ตกแตก  ",
