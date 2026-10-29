@@ -16,7 +16,12 @@ func NewHandler(service Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
-	courses := router.Group("/courses", middleware.AuthMiddleware)
+	h.registerRoutes(router, middleware.AuthMiddleware)
+}
+
+// registerRoutes แยก auth ออกมาให้ test ใส่ตัวตั้งผู้ใช้ปลอมแทน session ได้ โดยยังใช้ route ชุดเดียวกับของจริง
+func (h *Handler) registerRoutes(router fiber.Router, auth fiber.Handler) {
+	courses := router.Group("/courses", auth)
 	courses.Get("", h.GetAllCourse)
 	courses.Post("", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.AddCourse)
 	courses.Patch("/:id", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.UpdateCourseById)
