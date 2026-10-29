@@ -19,6 +19,7 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	courses := router.Group("/courses", middleware.AuthMiddleware)
 	courses.Get("", h.GetAllCourse)
 	courses.Post("", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.AddCourse)
+	courses.Patch("/:id", middleware.RequireAdminMiddleware, middleware.ReqEmptyCheck, h.UpdateCourseById)
 }
 
 // GetAllCourse GET /api/courses?page=&page_size=
@@ -51,4 +52,20 @@ func (h *Handler) AddCourse(c fiber.Ctx) error {
 
 	return _package.SendJSON(c, fiber.StatusCreated,
 		_package.SuccessResponse("Course created successfully", course))
+}
+
+// UpdateCourseById PATCH /api/courses/:id (admin เท่านั้น เช็คที่ route)
+func (h *Handler) UpdateCourseById(c fiber.Ctx) error {
+	var req UpdateCourseRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return _package.SendBadBody(c, err)
+	}
+
+	course, err := h.service.UpdateCourseById(c.Context(), c.Params("id"), req)
+	if err != nil {
+		return _package.SendError(c, err, "course")
+	}
+
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessResponse("Course updated successfully", course))
 }
