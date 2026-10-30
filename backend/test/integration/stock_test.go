@@ -381,10 +381,12 @@ func TestService_DeleteUnreferencedStock_HardDeletes(t *testing.T) {
 // ลบทุกกรณีของความสัมพันธ์ ต้องไม่ error (ไม่หลุดเป็น 500)
 func TestService_DeleteStockWithAnyRelation_DoesNotFail(t *testing.T) {
 	setups := map[string]func(t *testing.T, tx *gorm.DB, id string){
-		"order_items":      func(t *testing.T, tx *gorm.DB, id string) { mkOrderItem(t, tx, id) },
-		"course_items":     func(t *testing.T, tx *gorm.DB, id string) { mkCourseItem(t, tx, id) },
-		"stock_logs":       func(t *testing.T, tx *gorm.DB, id string) { mkStockLog(t, tx, id, mkBranch(t, tx).ID) },
-		"stock_containers": func(t *testing.T, tx *gorm.DB, id string) { mkContainer(t, tx, id, mkBranch(t, tx).ID, time.Now(), false) },
+		"order_items":  func(t *testing.T, tx *gorm.DB, id string) { mkOrderItem(t, tx, id) },
+		"course_items": func(t *testing.T, tx *gorm.DB, id string) { mkCourseItem(t, tx, id) },
+		"stock_logs":   func(t *testing.T, tx *gorm.DB, id string) { mkStockLog(t, tx, id, mkBranch(t, tx).ID) },
+		"stock_containers": func(t *testing.T, tx *gorm.DB, id string) {
+			mkContainer(t, tx, id, mkBranch(t, tx).ID, time.Now(), false)
+		},
 	}
 
 	for name, setup := range setups {
