@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -164,7 +165,7 @@ func TestStockLog_Quantities_LowStock(t *testing.T) {
 	})
 
 	t.Run("lowStock=true: เฉพาะที่ต่ำ และ total ตรงกับที่กรอง", func(t *testing.T) {
-		items, meta := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{BranchID: branch.ID, Search: p, LowStock: true})
+		items, meta := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{BranchID: branch.ID, Search: p, LowStock: "true"})
 		assert.ElementsMatch(t, []string{p + "-atmin", p + "-zero"}, slQtyNames(items))
 		assert.Equal(t, int64(2), meta.Total)
 	})
@@ -259,7 +260,7 @@ func TestStockLog_Quantities_Pagination(t *testing.T) {
 	}
 
 	page := func(n int) ([]string, _package.PageMeta) {
-		items, meta := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{BranchID: branch.ID, Search: p, Page: n, PageSize: 2})
+		items, meta := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{BranchID: branch.ID, Search: p, Page: strconv.Itoa(n), PageSize: "2"})
 		return slQtyNames(items), meta
 	}
 
@@ -306,7 +307,7 @@ func TestStockLog_Quantities_AdminWithoutBranchSeesAllActiveBranches(t *testing.
 	var activeBranches int64
 	require.NoError(t, tx.Model(&models.Branch{}).Where("is_active = ?", true).Count(&activeBranches).Error)
 
-	items, _ := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{Search: p, PageSize: 100})
+	items, _ := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{Search: p, PageSize: "100"})
 
 	got := map[string]bool{}
 	for _, i := range items {
@@ -470,7 +471,7 @@ func TestStockLog_Logs_PaginationStableOnTies(t *testing.T) {
 	var collected []string
 	var lastMeta _package.PageMeta
 	for page := 1; page <= 3; page++ {
-		items, meta := slLogs(t, svc, stocklog.GetAllStockLogsQuery{StockID: s.ID, Page: page, PageSize: 2})
+		items, meta := slLogs(t, svc, stocklog.GetAllStockLogsQuery{StockID: s.ID, Page: strconv.Itoa(page), PageSize: "2"})
 		collected = append(collected, slLogIDs(items)...)
 		lastMeta = meta
 	}
