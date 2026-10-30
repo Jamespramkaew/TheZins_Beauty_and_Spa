@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"backend/internal/currentuser"
 	"backend/internal/models"
 	"backend/internal/stock"
 	_package "backend/package"
@@ -521,7 +522,7 @@ func TestService_GetStockContainers_BranchUserSeesOnlyOwnBranch(t *testing.T) {
 	mkContainer(t, tx, s.ID, theirs.ID, now.Add(time.Hour), false)
 
 	// บัญชีสาขาพยายามขอดูสาขาอื่น ต้องถูกบังคับเป็นสาขาตัวเอง
-	got, meta, err := svc.GetStockContainersByStockID(ctx, "branch", mine.ID,
+	got, meta, err := svc.GetStockContainersByStockID(ctx, &currentuser.CurrentUser{Role: "branch", BranchID: &mine.ID},
 		stock.ContainerQuery{StockID: s.ID, BranchID: theirs.ID, Status: stock.StatusAll})
 
 	require.NoError(t, err)
@@ -530,7 +531,7 @@ func TestService_GetStockContainers_BranchUserSeesOnlyOwnBranch(t *testing.T) {
 	assert.Equal(t, int64(1), meta.Total)
 
 	// admin ไม่ระบุสาขา เห็นทุกสาขา
-	all, meta, err := svc.GetStockContainersByStockID(ctx, "admin", "",
+	all, meta, err := svc.GetStockContainersByStockID(ctx, &currentuser.CurrentUser{Role: "admin"},
 		stock.ContainerQuery{StockID: s.ID, Status: stock.StatusAll})
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
