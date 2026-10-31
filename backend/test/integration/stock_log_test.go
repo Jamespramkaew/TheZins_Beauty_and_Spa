@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"backend/internal/branch"
+	"backend/internal/currentuser"
 	"backend/internal/employee"
 	"backend/internal/models"
 	"backend/internal/stock"
@@ -164,7 +166,7 @@ func TestStockLog_Quantities_LowStock(t *testing.T) {
 	})
 
 	t.Run("lowStock=true: เฉพาะที่ต่ำ และ total ตรงกับที่กรอง", func(t *testing.T) {
-		items, meta := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{BranchID: branch.ID, Search: p, LowStock: true})
+		items, meta := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{BranchID: branch.ID, Search: p, LowStock: "true"})
 		assert.ElementsMatch(t, []string{p + "-atmin", p + "-zero"}, slQtyNames(items))
 		assert.Equal(t, int64(2), meta.Total)
 	})
@@ -259,7 +261,7 @@ func TestStockLog_Quantities_Pagination(t *testing.T) {
 	}
 
 	page := func(n int) ([]string, _package.PageMeta) {
-		items, meta := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{BranchID: branch.ID, Search: p, Page: n, PageSize: 2})
+		items, meta := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{BranchID: branch.ID, Search: p, Page: strconv.Itoa(n), PageSize: "2"})
 		return slQtyNames(items), meta
 	}
 
@@ -306,7 +308,7 @@ func TestStockLog_Quantities_AdminWithoutBranchSeesAllActiveBranches(t *testing.
 	var activeBranches int64
 	require.NoError(t, tx.Model(&models.Branch{}).Where("is_active = ?", true).Count(&activeBranches).Error)
 
-	items, _ := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{Search: p, PageSize: 100})
+	items, _ := slQuantities(t, svc, stocklog.GetAllStockQuantitiesQuery{Search: p, PageSize: "100"})
 
 	got := map[string]bool{}
 	for _, i := range items {
@@ -470,7 +472,7 @@ func TestStockLog_Logs_PaginationStableOnTies(t *testing.T) {
 	var collected []string
 	var lastMeta _package.PageMeta
 	for page := 1; page <= 3; page++ {
-		items, meta := slLogs(t, svc, stocklog.GetAllStockLogsQuery{StockID: s.ID, Page: page, PageSize: 2})
+		items, meta := slLogs(t, svc, stocklog.GetAllStockLogsQuery{StockID: s.ID, Page: strconv.Itoa(page), PageSize: "2"})
 		collected = append(collected, slLogIDs(items)...)
 		lastMeta = meta
 	}
@@ -563,12 +565,17 @@ func TestStockLog_DB_RejectsUnknownLogType(t *testing.T) {
 
 // ---------- รูปแบบ JSON จริงของทั้งสองเส้น (handler + service + repository + DB) ----------
 
+// slApp ลงทะเบียน handler จริง (ข้าม AuthMiddleware) แล้ววางผู้ใช้ด้วย currentuser.Set เหมือน AuthMiddleware จริง
+// branchID "" = ไม่มีสาขา (admin หรือบัญชีสาขาที่ข้อมูลผิด)
 func slApp(tx *gorm.DB, role, branchID string) *fiber.App {
 	h := stocklog.NewHandler(slSvc(tx))
 	app := fiber.New()
 	app.Use(func(c fiber.Ctx) error {
-		c.Locals("role", role)
-		c.Locals("branchId", branchID)
+		user := &currentuser.CurrentUser{Role: role}
+		if branchID != "" {
+			user.BranchID = &branchID
+		}
+		currentuser.Set(c, user)
 		return c.Next()
 	})
 	app.Get("/stock-logs/quantities", h.GetAllStockQuantities)
@@ -605,7 +612,7 @@ func TestStockLog_HTTP_LogsJSONShape(t *testing.T) {
 	emp := mkEmployee(t, tx, branch.ID, "manager")
 	slLogAt(t, tx, s.ID, branch.ID, emp.ID, "receive", 5, time.Now())
 
-	status, body := slGet(t, slApp(tx, "admin", ""), "/stock-logs?stockId="+s.ID)
+	status, body := slGet(t, slApp(tx, "admin", ""), "/stock-logs?stock_id="+s.ID)
 
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, true, body["success"])
@@ -634,7 +641,7 @@ func TestStockLog_HTTP_QuantitiesJSONShape(t *testing.T) {
 	branch := mkBranch(t, tx)
 	slLogAt(t, tx, s.ID, branch.ID, mkEmployee(t, tx, branch.ID, "manager").ID, "receive", 12, time.Now())
 
-	status, body := slGet(t, slApp(tx, "admin", ""), "/stock-logs/quantities?branchId="+branch.ID+"&search="+p)
+	status, body := slGet(t, slApp(tx, "admin", ""), "/stock-logs/quantities?branch_id="+branch.ID+"&search="+p)
 
 	require.Equal(t, http.StatusOK, status)
 	rows := body["data"].([]any)
@@ -653,10 +660,10 @@ func TestStockLog_HTTP_InvalidInputReturns400(t *testing.T) {
 	app := slApp(tx, "admin", "")
 
 	for _, path := range []string{
-		"/stock-logs?stockId=not-a-uuid",
-		"/stock-logs?logType=steal",
+		"/stock-logs?stock_id=not-a-uuid",
+		"/stock-logs?log_type=steal",
 		"/stock-logs?from=2026-10-02&to=2026-10-01",
-		"/stock-logs?pageSize=101",
+		"/stock-logs?page_size=101",
 		"/stock-logs/quantities?category=luxury",
 		"/stock-logs/quantities?active=maybe",
 	} {
@@ -694,7 +701,7 @@ func slPost(t *testing.T, app *fiber.App, path string, payload map[string]any) (
 }
 
 func slMovement(stockID, branchID, employeeID, logType string, qty int) map[string]any {
-	return map[string]any{"type": logType, "stockId": stockID, "branchId": branchID, "employeeId": employeeID, "qty": qty}
+	return map[string]any{"type": logType, "stock_id": stockID, "branch_id": branchID, "employee_id": employeeID, "qty": qty}
 }
 
 func slBalance(t *testing.T, tx *gorm.DB, stockID, branchID string) int {
@@ -728,6 +735,8 @@ func TestStockLog_Add_SignAndPersistedRow(t *testing.T) {
 			s := slStock(t, tx, uniqueName("itest-add-sign"), 0)
 			branch := mkBranch(t, tx)
 			emp := mkEmployee(t, tx, branch.ID, "manager")
+			// รับของเข้าไว้ก่อน ไม่งั้นชนิดที่ตัดออกจะโดนกันว่าสต็อกไม่พอ
+			mkStockLogBy(t, tx, s.ID, branch.ID, emp.ID, "receive", 7)
 
 			got, err := svc.AddStockLogMovement(ctx, "admin", "", stocklog.AddStockLogMovementRequest{
 				Type: tt.logType, BranchID: branch.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: 7,
@@ -757,6 +766,8 @@ func TestStockLog_Add_NoteStoredTrimmedOrNull(t *testing.T) {
 	s := slStock(t, tx, uniqueName("itest-add-note"), 0)
 	branch := mkBranch(t, tx)
 	emp := mkEmployee(t, tx, branch.ID, "manager")
+	// damaged ตัดของออก ต้องมีของพอให้ตัด 2 ครั้ง
+	mkStockLogBy(t, tx, s.ID, branch.ID, emp.ID, "receive", 2)
 
 	withNote, err := svc.AddStockLogMovement(ctx, "admin", "", stocklog.AddStockLogMovementRequest{
 		Type: "damaged", BranchID: branch.ID, StockID: s.ID, EmployeeID: emp.ID, Qty: 1, Note: "  ตกแตก  ",
@@ -879,7 +890,7 @@ func TestStockLog_HTTP_AddReturns201WithModelShape(t *testing.T) {
 	assert.NotEmpty(t, data["created_at"])
 
 	// ยืนยันว่าเห็นในเส้น GET จริง
-	status, listed := slGet(t, slApp(tx, "admin", ""), "/stock-logs?stockId="+s.ID)
+	status, listed := slGet(t, slApp(tx, "admin", ""), "/stock-logs?stock_id="+s.ID)
 	require.Equal(t, http.StatusOK, status)
 	assert.Len(t, listed["data"].([]any), 1)
 }
@@ -900,7 +911,7 @@ func TestStockLog_HTTP_AddInvalidInputReturns400(t *testing.T) {
 		{"qty ติดลบ", slMovement(s.ID, branch.ID, emp.ID, "damaged", -3)},
 		{"stockId ไม่ใช่ UUID", slMovement("abc", branch.ID, emp.ID, "receive", 1)},
 		{"employeeId ว่าง", slMovement(s.ID, branch.ID, "", "receive", 1)},
-		{"qty เป็น string (bind ไม่ได้)", map[string]any{"type": "receive", "stockId": s.ID, "branchId": branch.ID, "employeeId": emp.ID, "qty": "ten"}},
+		{"qty เป็น string (bind ไม่ได้)", map[string]any{"type": "receive", "stock_id": s.ID, "branch_id": branch.ID, "employee_id": emp.ID, "qty": "ten"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

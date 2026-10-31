@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"backend/internal/currentuser"
 	"backend/internal/models"
 	"backend/internal/stock"
 	_package "backend/package"
@@ -380,10 +381,12 @@ func TestService_DeleteUnreferencedStock_HardDeletes(t *testing.T) {
 // ลบทุกกรณีของความสัมพันธ์ ต้องไม่ error (ไม่หลุดเป็น 500)
 func TestService_DeleteStockWithAnyRelation_DoesNotFail(t *testing.T) {
 	setups := map[string]func(t *testing.T, tx *gorm.DB, id string){
-		"order_items":      func(t *testing.T, tx *gorm.DB, id string) { mkOrderItem(t, tx, id) },
-		"course_items":     func(t *testing.T, tx *gorm.DB, id string) { mkCourseItem(t, tx, id) },
-		"stock_logs":       func(t *testing.T, tx *gorm.DB, id string) { mkStockLog(t, tx, id, mkBranch(t, tx).ID) },
-		"stock_containers": func(t *testing.T, tx *gorm.DB, id string) { mkContainer(t, tx, id, mkBranch(t, tx).ID, time.Now(), false) },
+		"order_items":  func(t *testing.T, tx *gorm.DB, id string) { mkOrderItem(t, tx, id) },
+		"course_items": func(t *testing.T, tx *gorm.DB, id string) { mkCourseItem(t, tx, id) },
+		"stock_logs":   func(t *testing.T, tx *gorm.DB, id string) { mkStockLog(t, tx, id, mkBranch(t, tx).ID) },
+		"stock_containers": func(t *testing.T, tx *gorm.DB, id string) {
+			mkContainer(t, tx, id, mkBranch(t, tx).ID, time.Now(), false)
+		},
 	}
 
 	for name, setup := range setups {
@@ -521,7 +524,7 @@ func TestService_GetStockContainers_BranchUserSeesOnlyOwnBranch(t *testing.T) {
 	mkContainer(t, tx, s.ID, theirs.ID, now.Add(time.Hour), false)
 
 	// บัญชีสาขาพยายามขอดูสาขาอื่น ต้องถูกบังคับเป็นสาขาตัวเอง
-	got, meta, err := svc.GetStockContainersByStockID(ctx, "branch", mine.ID,
+	got, meta, err := svc.GetStockContainersByStockID(ctx, &currentuser.CurrentUser{Role: "branch", BranchID: &mine.ID},
 		stock.ContainerQuery{StockID: s.ID, BranchID: theirs.ID, Status: stock.StatusAll})
 
 	require.NoError(t, err)
@@ -530,7 +533,7 @@ func TestService_GetStockContainers_BranchUserSeesOnlyOwnBranch(t *testing.T) {
 	assert.Equal(t, int64(1), meta.Total)
 
 	// admin ไม่ระบุสาขา เห็นทุกสาขา
-	all, meta, err := svc.GetStockContainersByStockID(ctx, "admin", "",
+	all, meta, err := svc.GetStockContainersByStockID(ctx, &currentuser.CurrentUser{Role: "admin"},
 		stock.ContainerQuery{StockID: s.ID, Status: stock.StatusAll})
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
