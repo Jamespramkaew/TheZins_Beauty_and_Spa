@@ -26,6 +26,9 @@ go get github.com/gofiber/fiber/v3/middleware/limiter
 go get gorm.io/gorm
 go get gorm.io/driver/postgres
 
+# Testing
+go get github.com/stretchr/testify/assert
+
 # Clean up and download
 go mod tidy
 go mod download

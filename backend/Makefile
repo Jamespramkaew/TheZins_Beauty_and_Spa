@@ -1,4 +1,4 @@
-.PHONY: help run dev build clean test docker-up docker-down migrate migrate-reset seed seed-reset
+.PHONY: help run dev build clean test test-integration test-db test-integration-isolated docker-up docker-down migrate migrate-reset seed seed-reset
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -19,8 +19,23 @@ clean: ## Remove built binaries
 	@rm -rf bin/
 	@echo "Cleaned!"
 
-test: ## Run tests
+test: ## Run unit tests (no database needed)
 	go test -v ./...
+
+TEST_DB_CONTAINER ?= the-zins-db
+TEST_DB_NAME ?= the_zins_db_test
+
+test-integration: ## Integration tests on the dev DB in .env (each test rolls back; schema must be migrated)
+	go test -tags integration -count=1 -v ./test/integration/...
+
+test-db: ## Create the separate test database inside the Docker container (idempotent)
+	docker-compose -f ../docker-compose.yml up -d db
+	@until docker exec $(TEST_DB_CONTAINER) pg_isready -U postgres -q; do sleep 1; done
+	@docker exec $(TEST_DB_CONTAINER) psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$(TEST_DB_NAME)'" | grep -q 1 \
+		|| docker exec $(TEST_DB_CONTAINER) createdb -U postgres $(TEST_DB_NAME)
+
+test-integration-isolated: test-db ## Integration tests on $(TEST_DB_NAME) (auto-migrated, never touches dev data)
+	INTEGRATION_DB_NAME=$(TEST_DB_NAME) go test -tags integration -count=1 -v ./test/integration/...
 
 docker-up: ## Start Docker containers
 	docker-compose up -d

@@ -22,3 +22,15 @@ type UpdateCustomer struct {
 	CitizenID *string `json:"citizen_id"`
 	BDay      *string `json:"b_day"`
 }
+
+// ChangeTier รับ body ของ POST /api/customers/:id/tier
+type ChangeTier struct {
+	Tier string `json:"tier"` // general หรือ vip
+}
+
+// SearchCustomersQuery = query string ของ GET /api/customers (รับเป็นข้อความ แปลงใน service)
+type SearchCustomersQuery struct {
+	Q        string // ค้น HN, ชื่อเต็ม หรือเบอร์โทร ว่าง = ลูกค้าที่สร้างล่าสุด
+	Page     string // ว่าง = 1
+	PageSize string // ว่าง = 20 สูงสุด 100
+}

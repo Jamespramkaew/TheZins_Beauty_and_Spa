@@ -1,0 +1,539 @@
+package stocklog
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"backend/internal/branch"
+	"backend/internal/employee"
+	"backend/internal/models"
+	"backend/internal/stock"
+
+	_package "backend/package"
+)
+
+var errBranchRequired = _package.NewAppError(
+	"Branch is required",
+	_package.CodeForbidden,
+	"Your account is not linked to a branch",
+)
+
+const (
+	activeTrue  = "true"
+	activeFalse = "false"
+	activeAll   = "all"
+)
+
+const (
+	defaultPage     = 1
+	maxPage         = 1_000_000
+	defaultPageSize = 20
+	maxPageSize     = 100
+	maxSearchLen    = 100
+)
+
+// ค่าที่อนุญาตของ ?direction=
+const (
+	directionIn  = "in"
+	directionOut = "out"
+)
+
+// log_type ที่ตรงกับ CHECK constraint ของ stock_logs
+var validLogTypes = map[string]bool{
+	"receive": true, "sale": true, "use": true, "open": true, "damaged": true,
+	"expired": true, "internal": true, "transfer": true, "adjust": true, "count_diff": true,
+}
+
+// movementRule = กฎของ log type ที่ลงเองได้ผ่าน POST /api/stock-logs
+type movementRule struct {
+	// sign +1 / -1 = server กำหนดเครื่องหมายเอง (client ต้องส่ง qty เป็นบวก)
+	// sign 0 = ใช้เครื่องหมายที่ client ส่งมา (+ เพิ่ม / - ลด) แต่ห้ามเป็น 0
+	sign         int
+	noteRequired bool
+}
+
+// movementRules = log type ที่อนุญาตใน POST /api/stock-logs
+// ชนิดอื่น (sale/use/open/transfer/count_diff) ถูกสร้างจากที่อื่นเท่านั้น
+var movementRules = map[string]movementRule{
+	"receive":  {sign: 1},
+	"expired":  {sign: -1},
+	"damaged":  {sign: -1},
+	"internal": {sign: -1},
+	"adjust":   {sign: 0, noteRequired: true}, // แก้ข้อมูลที่คีย์ผิด ต้องบอกเหตุผลเสมอ
+}
+
+const movementTypesText = "receive, expired, damaged, internal, adjust"
+
+// วันที่ใน ?from= ?to= ถือเป็นเวลาไทย (UTC+7 ไม่มี DST) ใช้ FixedZone เพื่อไม่ต้องพึ่ง tzdata ของเครื่อง
+var thaiTime = time.FixedZone("ICT", 7*60*60)
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+type Service interface {
+	GetAllStockQuantities(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockQuantitiesQuery) ([]StockQuantity, _package.PageMeta, error)
+	GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error)
+	AddStockLogMovement(ctx context.Context, userRole string, sessionBranchId string, data AddStockLogMovementRequest) (*models.StockLog, error)
+	TransferStockLog(ctx context.Context, userRole string, sessionBranchId string, data TransferStockLogRequest) error
+}
+
+type service struct {
+	repository         Repository
+	stockRepository    stock.Repository
+	branchRepository   branch.Repository
+	employeeRepository employee.Repository
+}
+
+func NewService(repository Repository, stockRepository stock.Repository, branchRepository branch.Repository, employeeRepository employee.Repository) Service {
+	return &service{
+		repository:         repository,
+		stockRepository:    stockRepository,
+		branchRepository:   branchRepository,
+		employeeRepository: employeeRepository,
+	}
+}
+
+// GetAllStockQuantities คืนยอดคงเหลือของสินค้าแยกตามสาขา
+// admin: เลือกสาขาด้วย q.BranchID ได้ แต่ถ้าไม่ส่งมา = ทุกสาขา
+// บัญชีอื่น: ถูกบังคับเป็นสาขาของตัวเองเสมอ (ไม่สนค่า q.BranchID กันดูข้ามสาขา)
+func (s *service) GetAllStockQuantities(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockQuantitiesQuery) ([]StockQuantity, _package.PageMeta, error) {
+	var noMeta _package.PageMeta
+
+	var branchId string
+	if userRole == "admin" {
+		branchId = strings.TrimSpace(q.BranchID)
+		if branchId != "" && !uuidPattern.MatchString(branchId) {
+			return nil, noMeta, invalid("branch_id must be a valid UUID")
+		}
+	} else {
+		if sessionBranchId == "" {
+			return nil, noMeta, errBranchRequired
+		}
+		branchId = sessionBranchId
+	}
+
+	category := strings.ToLower(strings.TrimSpace(q.Category))
+	if category != "" && category != "premium" && category != "normal" {
+		return nil, noMeta, invalid("category must be one of: premium, normal")
+	}
+
+	active := strings.ToLower(strings.TrimSpace(q.Active))
+	switch active {
+	case "":
+		active = activeTrue
+	case activeTrue, activeFalse, activeAll:
+	default:
+		return nil, noMeta, invalid("active must be one of: true, false, all")
+	}
+
+	search := strings.TrimSpace(q.Search)
+	if len([]rune(search)) > maxSearchLen {
+		return nil, noMeta, invalid("search must not exceed %d characters", maxSearchLen)
+	}
+
+	lowStock, err := parseOptionalBool("low_stock", q.LowStock)
+	if err != nil {
+		return nil, noMeta, err
+	}
+
+	page, err := parseBoundedInt("page", q.Page, defaultPage, maxPage)
+	if err != nil {
+		return nil, noMeta, err
+	}
+	pageSize, err := parseBoundedInt("page_size", q.PageSize, defaultPageSize, maxPageSize)
+	if err != nil {
+		return nil, noMeta, err
+	}
+
+	items, total, err := s.repository.GetAllStockQuantities(ctx, quantityFilter{
+		BranchID: branchId,
+		Search:   search,
+		Category: category,
+		LowStock: lowStock,
+		Active:   active,
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		return nil, noMeta, err
+	}
+
+	for i := range items {
+		items[i].IsLowStock = items[i].Quantity <= items[i].MinQty
+	}
+	if items == nil {
+		items = []StockQuantity{}
+	}
+	return items, _package.NewPageMeta(page, pageSize, total), nil
+}
+
+// parseBoundedInt แปลง query ที่รับมาเป็นข้อความให้เป็นตัวเลข ว่าง = ค่าเริ่มต้น
+// ไม่ใช่ตัวเลข หรืออยู่นอกช่วง 1..max → 400 พร้อมข้อความที่คนอ่านเข้าใจ
+func parseBoundedInt(name, raw string, def, max int) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > max {
+		return 0, invalid("%s must be a number between 1 and %d", name, max)
+	}
+	return n, nil
+}
+
+// parseOptionalBool แปลง query true / false ว่าง = false
+func parseOptionalBool(name, raw string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "false":
+		return false, nil
+	case "true":
+		return true, nil
+	}
+	return false, invalid("%s must be true or false", name)
+}
+
+// GetStockLogsByBranchId คืนประวัติ stock_logs ทีละหน้า เรียงใหม่สุดก่อน
+// admin: เลือกสาขาด้วย q.BranchID ได้ ไม่ส่งมา = ทุกสาขา
+// บัญชีอื่น: ถูกบังคับเป็นสาขาของตัวเองเสมอ (ไม่สนค่า q.BranchID กันดูข้ามสาขา)
+func (s *service) GetStockLogsByBranchId(ctx context.Context, userRole string, sessionBranchId string, q GetAllStockLogsQuery) ([]StockLogResponse, _package.PageMeta, error) {
+	var noMeta _package.PageMeta
+
+	var branchId string
+	if userRole == "admin" {
+		branchId = strings.TrimSpace(q.BranchID)
+		if err := checkOptionalUUID("branch_id", branchId); err != nil {
+			return nil, noMeta, err
+		}
+	} else {
+		if sessionBranchId == "" {
+			return nil, noMeta, errBranchRequired
+		}
+		branchId = sessionBranchId
+	}
+
+	stockId := strings.TrimSpace(q.StockID)
+	if err := checkOptionalUUID("stock_id", stockId); err != nil {
+		return nil, noMeta, err
+	}
+	orderItemId := strings.TrimSpace(q.OrderItemID)
+	if err := checkOptionalUUID("order_item_id", orderItemId); err != nil {
+		return nil, noMeta, err
+	}
+	usageId := strings.TrimSpace(q.UsageID)
+	if err := checkOptionalUUID("usage_id", usageId); err != nil {
+		return nil, noMeta, err
+	}
+
+	logType := strings.ToLower(strings.TrimSpace(q.LogType))
+	if logType != "" && !validLogTypes[logType] {
+		return nil, noMeta, invalid("log_type must be one of: receive, sale, use, open, damaged, expired, internal, transfer, adjust, count_diff")
+	}
+
+	direction := strings.ToLower(strings.TrimSpace(q.Direction))
+	switch direction {
+	case "", directionIn, directionOut:
+	default:
+		return nil, noMeta, invalid("direction must be one of: in, out")
+	}
+
+	var from, until *time.Time
+	if raw := strings.TrimSpace(q.From); raw != "" {
+		d, err := time.ParseInLocation(time.DateOnly, raw, thaiTime)
+		if err != nil {
+			return nil, noMeta, invalid("from must be YYYY-MM-DD")
+		}
+		from = &d
+	}
+	if raw := strings.TrimSpace(q.To); raw != "" {
+		d, err := time.ParseInLocation(time.DateOnly, raw, thaiTime)
+		if err != nil {
+			return nil, noMeta, invalid("to must be YYYY-MM-DD")
+		}
+		end := d.AddDate(0, 0, 1) // นับรวมทั้งวันของ to
+		until = &end
+	}
+	if from != nil && until != nil && !from.Before(*until) {
+		return nil, noMeta, invalid("from must not be after to")
+	}
+
+	page, err := parseBoundedInt("page", q.Page, defaultPage, maxPage)
+	if err != nil {
+		return nil, noMeta, err
+	}
+	pageSize, err := parseBoundedInt("page_size", q.PageSize, defaultPageSize, maxPageSize)
+	if err != nil {
+		return nil, noMeta, err
+	}
+
+	logs, total, err := s.repository.GetStockLogs(ctx, stockLogFilter{
+		StockID:     stockId,
+		BranchID:    branchId,
+		LogType:     logType,
+		Direction:   direction,
+		From:        from,
+		Until:       until,
+		OrderItemID: orderItemId,
+		UsageID:     usageId,
+		Page:        page,
+		PageSize:    pageSize,
+	})
+	if err != nil {
+		return nil, noMeta, err
+	}
+	items := make([]StockLogResponse, 0, len(logs)) // ตอบ [] ไม่ใช่ null
+	for _, l := range logs {
+		items = append(items, toStockLogResponse(l))
+	}
+	return items, _package.NewPageMeta(page, pageSize, total), nil
+}
+
+// AddStockLogMovement ลง stock log แบบทำเอง 1 แถว: receive, expired, damaged, internal, adjust
+// กฎของแต่ละชนิด (เครื่องหมาย qty, ต้องมี note ไหม) อยู่ใน movementRules
+// admin: ต้องส่ง branchId / บัญชีสาขา: ถูกบังคับเป็นสาขาใน session (ไม่สนค่า data.BranchID)
+func (s *service) AddStockLogMovement(ctx context.Context, userRole string, sessionBranchId string, data AddStockLogMovementRequest) (*models.StockLog, error) {
+
+	logType := strings.ToLower(strings.TrimSpace(data.Type))
+	if logType == "" {
+		return nil, invalid("type is required")
+	}
+	rule, ok := movementRules[logType]
+	if !ok {
+		return nil, invalid("type must be one of: %s", movementTypesText)
+	}
+
+	var qtyChange int
+	if rule.sign != 0 {
+		if data.Qty <= 0 {
+			return nil, invalid("qty must be positive")
+		}
+		qtyChange = data.Qty * rule.sign
+
+	} else {
+		if data.Qty == 0 {
+			return nil, invalid("qty must not be zero")
+		}
+		qtyChange = data.Qty
+	}
+
+	var note *string
+	if n := strings.TrimSpace(data.Note); n != "" {
+		note = &n
+	} else if rule.noteRequired {
+		return nil, invalid("note is required for %s", logType)
+	}
+
+	stockId := strings.TrimSpace(data.StockID)
+	if err := checkRequiredUUID("stock_id", stockId); err != nil {
+		return nil, err
+	}
+
+	employeeId := strings.TrimSpace(data.EmployeeID)
+	if err := checkRequiredUUID("employee_id", employeeId); err != nil {
+		return nil, err
+	}
+
+	var branchId string
+	if userRole == "admin" {
+		branchId = strings.TrimSpace(data.BranchID)
+		if err := checkRequiredUUID("branch_id", branchId); err != nil {
+			return nil, err
+		}
+	} else {
+		if sessionBranchId == "" {
+			return nil, errBranchRequired
+		}
+		branchId = sessionBranchId
+	}
+
+	foundStock, err := s.stockRepository.FindStockById(ctx, stockId) // ไม่รวมสินค้าที่ถูก soft delete
+	if err != nil {
+		return nil, err
+	}
+	if foundStock == nil {
+		return nil, invalid("stock_id not found")
+	}
+
+	foundBranch, err := s.branchRepository.FindBranchById(ctx, branchId)
+	if err != nil {
+		return nil, err
+	}
+	if foundBranch == nil {
+		return nil, invalid("branch_id not found")
+	}
+	if !foundBranch.IsActive {
+		return nil, invalid("branch is not active")
+	}
+
+	foundEmployee, err := s.employeeRepository.FindEmployeeById(ctx, employeeId)
+	if err != nil {
+		return nil, err
+	}
+	if foundEmployee == nil {
+		return nil, invalid("employee_id not found")
+	}
+	if !foundEmployee.IsActive {
+		return nil, invalid("employee is not active")
+	}
+	// การล็อก branchId ไม่ได้ล็อก employeeId ที่ client ส่งมา
+	// ต้องเช็คเองไม่งั้นจะได้แถวที่บอกว่าพนักงานสาขาอื่นเป็นคนทำรายการในสาขานี้ (แก้ทีหลังไม่ได้เพราะ append-only)
+	if foundEmployee.BranchID != branchId {
+		return nil, invalid("employee does not belong to this branch")
+	}
+
+	if qtyChange < 0 {
+		currentQty, err := s.repository.GetStockQuantity(ctx, stockId, branchId)
+		if err != nil {
+			return nil, err
+		}
+		if currentQty < -qtyChange {
+			return nil, invalid("insufficient stock: available %d, requested %d", currentQty, -qtyChange)
+		}
+	}
+
+	stockLog := &models.StockLog{
+		LogType:    logType,
+		StockID:    stockId,
+		BranchID:   branchId,
+		EmployeeID: employeeId,
+		QtyChange:  qtyChange,
+		Note:       note,
+	}
+	if err := s.repository.CreateStockLog(ctx, stockLog); err != nil {
+		return nil, err
+	}
+	return stockLog, nil
+}
+
+func (s *service) TransferStockLog(ctx context.Context, userRole string, sessionBranchId string, data TransferStockLogRequest) error {
+
+	logType := "transfer"
+
+	if data.Qty <= 0 {
+		return invalid("qty is required and must be greater than zero")
+	}
+	qtyChange := data.Qty
+
+	stockId := strings.TrimSpace(data.StockID)
+	if err := checkRequiredUUID("stock_id", stockId); err != nil {
+		return err
+	}
+
+	var fromBranchId string
+	if userRole == "admin" {
+		fromBranchId = strings.TrimSpace(data.FromBranchId)
+		if err := checkRequiredUUID("from_branch_id", fromBranchId); err != nil {
+			return err
+		}
+	} else {
+		if sessionBranchId == "" {
+			return errBranchRequired
+		}
+		fromBranchId = sessionBranchId
+	}
+
+	toBranchId := strings.TrimSpace(data.ToBranchId)
+	if err := checkRequiredUUID("to_branch_id", toBranchId); err != nil {
+		return err
+	}
+
+	if fromBranchId == toBranchId {
+		return invalid("origin and destination branch must be different")
+	}
+
+	employeeId := strings.TrimSpace(data.EmployeeID)
+	if err := checkRequiredUUID("employee_id", employeeId); err != nil {
+		return err
+	}
+
+	foundStock, err := s.stockRepository.FindStockById(ctx, stockId) // ไม่รวมสินค้าที่ถูก soft delete
+	if err != nil {
+		return err
+	}
+	if foundStock == nil {
+		return invalid("stock_id not found")
+	}
+
+	foundFromBranch, err := s.branchRepository.FindBranchById(ctx, fromBranchId)
+	if err != nil {
+		return err
+	}
+	if foundFromBranch == nil {
+		return invalid("origin branch not found")
+	}
+	if !foundFromBranch.IsActive {
+		return invalid("origin branch is not active")
+	}
+
+	foundToBranch, err := s.branchRepository.FindBranchById(ctx, toBranchId)
+	if err != nil {
+		return err
+	}
+	if foundToBranch == nil {
+		return invalid("destination branch not found")
+	}
+	if !foundToBranch.IsActive {
+		return invalid("destination branch is not active")
+	}
+
+	foundEmployee, err := s.employeeRepository.FindEmployeeById(ctx, employeeId)
+	if err != nil {
+		return err
+	}
+	if foundEmployee == nil {
+		return invalid("employee_id not found")
+	}
+	if !foundEmployee.IsActive {
+		return invalid("employee is not active")
+	}
+
+	if foundEmployee.BranchID != fromBranchId {
+		return invalid("employee does not belong to the origin branch")
+	}
+
+	currentQty, err := s.repository.GetStockQuantity(ctx, stockId, fromBranchId)
+	if err != nil {
+		return err
+	}
+	if currentQty < qtyChange {
+		return invalid("insufficient stock: available %d, requested %d", currentQty, qtyChange)
+	}
+
+	transfer := TransferStockLogRequest{
+		StockID:      stockId,
+		Type:         logType,
+		FromBranchId: fromBranchId,
+		ToBranchId:   toBranchId,
+		EmployeeID:   employeeId,
+		Qty:          qtyChange,
+		Note:         fmt.Sprintf("Transfer from %s to %s", foundFromBranch.Name, foundToBranch.Name),
+	}
+
+	return s.repository.TransferStockLog(ctx, transfer, logType)
+}
+
+// Helper Function
+
+// checkOptionalUUID ว่างผ่าน ถ้ามีค่าต้องเป็น UUID
+func checkOptionalUUID(name, v string) error {
+	if v != "" && !uuidPattern.MatchString(v) {
+		return invalid("%s must be a valid UUID", name)
+	}
+	return nil
+}
+
+func invalid(format string, args ...any) error {
+	return _package.NewAppError("Invalid request", _package.CodeValidation, fmt.Sprintf(format, args...))
+}
+
+func checkRequiredUUID(name, v string) error {
+	if v == "" {
+		return invalid("%s is required", name)
+	}
+	if !uuidPattern.MatchString(v) {
+		return invalid("%s must be a valid UUID", name)
+	}
+	return nil
+}

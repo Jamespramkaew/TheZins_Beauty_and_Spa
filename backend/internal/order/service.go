@@ -11,20 +11,18 @@ import (
 
 	"backend/internal/currentuser"
 	"backend/internal/models"
+	"backend/package"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
-// error ที่ handler ใช้เลือก HTTP status
+// error ที่ส่งกลับให้ client (_package.SendError แปลง Code เป็น HTTP status)
 var (
-	ErrInvalidInput = errors.New("invalid input")   // 400
-	ErrForbidden    = errors.New("forbidden")       // 403
-	ErrNotFound     = errors.New("order not found") // 404
+	ErrForbidden  = _package.NewAppError("Not allowed", _package.CodeForbidden, "")                                    // 403
+	ErrBranchOnly = _package.NewAppError("Not allowed", _package.CodeForbidden, "only branch users can create orders") // 403
+	ErrNotFound   = _package.NewAppError("Order not found", _package.CodeNotFound, "")                                 // 404
 )
-
-// listLimit = จำนวนบิลสูงสุดต่อการเรียก GET /api/orders (V1 ยังไม่มี pagination)
-const listLimit = 100
 
 // bangkok = เวลาไทย (UTC+7 ไม่มีเวลาออมแสง) ใช้หา "วันนี้" และเดือนในเลขบิล
 var bangkok = time.FixedZone("Asia/Bangkok", 7*60*60)
@@ -44,7 +42,7 @@ type OrderDetail struct {
 
 type Service interface {
 	Create(ctx context.Context, user *currentuser.CurrentUser, req CreateOrder) (*OrderDetail, error)
-	List(ctx context.Context, user *currentuser.CurrentUser, q ListOrdersQuery) ([]OrderRow, error)
+	List(ctx context.Context, user *currentuser.CurrentUser, q ListOrdersQuery) ([]OrderRow, _package.PageMeta, error)
 	GetByID(ctx context.Context, user *currentuser.CurrentUser, id string) (*OrderDetail, error)
 	AddPayment(ctx context.Context, user *currentuser.CurrentUser, orderID string, req CreatePayment) (*OrderDetail, error)
 }
@@ -60,7 +58,7 @@ func NewService(repository Repository) Service {
 func (s *service) Create(ctx context.Context, user *currentuser.CurrentUser, req CreateOrder) (*OrderDetail, error) {
 	// 1) ใครออกบิล: ต้องเป็นบัญชีสาขา branch มาจากผู้ใช้ ไม่ได้มาจาก body
 	if user.Role != "branch" || user.BranchID == nil {
-		return nil, fmt.Errorf("%w: only branch users can create orders", ErrForbidden)
+		return nil, ErrBranchOnly
 	}
 
 	now := time.Now().In(bangkok)
@@ -213,56 +211,62 @@ func (s *service) Create(ctx context.Context, user *currentuser.CurrentUser, req
 	return buildDetail(order, items, payments), nil
 }
 
-func (s *service) List(ctx context.Context, user *currentuser.CurrentUser, q ListOrdersQuery) ([]OrderRow, error) {
-	f := ListFilter{Limit: listLimit}
+func (s *service) List(ctx context.Context, user *currentuser.CurrentUser, q ListOrdersQuery) ([]OrderRow, _package.PageMeta, error) {
+	var noMeta _package.PageMeta
+
+	page, pageSize, err := _package.ParsePaging(q.Page, q.PageSize)
+	if err != nil {
+		return nil, noMeta, err
+	}
+	f := ListFilter{Page: page, PageSize: pageSize}
 
 	// สาขาเห็นแค่บิลของตัวเอง admin เห็นทุกสาขา
 	if user.Role != "admin" {
 		if user.BranchID == nil {
-			return nil, ErrForbidden
+			return nil, noMeta, ErrForbidden
 		}
 		f.BranchID = user.BranchID
 	}
 
 	if q.CustomerID != "" {
 		if !uuidPattern.MatchString(q.CustomerID) {
-			return nil, invalid("customer_id must be a UUID")
+			return nil, noMeta, invalid("customer_id must be a UUID")
 		}
 		f.CustomerID = &q.CustomerID
 	}
 	if q.From != "" {
 		d, err := time.Parse(time.DateOnly, q.From)
 		if err != nil {
-			return nil, invalid("from must be YYYY-MM-DD")
+			return nil, noMeta, invalid("from must be YYYY-MM-DD")
 		}
 		f.From = &d
 	}
 	if q.To != "" {
 		d, err := time.Parse(time.DateOnly, q.To)
 		if err != nil {
-			return nil, invalid("to must be YYYY-MM-DD")
+			return nil, noMeta, invalid("to must be YYYY-MM-DD")
 		}
 		f.To = &d
 	}
 	if f.From != nil && f.To != nil && f.From.After(*f.To) {
-		return nil, invalid("from must not be after to")
+		return nil, noMeta, invalid("from must not be after to")
 	}
 	if q.Status != "" {
 		if q.Status != "paid" && q.Status != "partial" && q.Status != "unpaid" {
-			return nil, invalid("status must be paid, partial or unpaid")
+			return nil, noMeta, invalid("status must be paid, partial or unpaid")
 		}
 		f.Status = &q.Status
 	}
 
-	rows, err := s.repository.List(ctx, f)
+	rows, total, err := s.repository.List(ctx, f)
 	if err != nil {
-		return nil, err
+		return nil, noMeta, err
 	}
 	for i := range rows {
 		rows[i].Outstanding = rows[i].Total.Sub(rows[i].Paid)
 		rows[i].Status = statusOf(rows[i].Total, rows[i].Paid)
 	}
-	return rows, nil
+	return rows, _package.NewPageMeta(page, pageSize, total), nil
 }
 
 func (s *service) GetByID(ctx context.Context, user *currentuser.CurrentUser, id string) (*OrderDetail, error) {
@@ -368,6 +372,7 @@ func isMoney(d decimal.Decimal) bool {
 	return d.Equal(d.Round(2))
 }
 
+// invalid สร้าง error 400 พร้อมรายละเอียดว่าข้อมูลส่วนไหนผิด
 func invalid(format string, args ...any) error {
-	return fmt.Errorf("%w: "+format, append([]any{ErrInvalidInput}, args...)...)
+	return _package.NewAppError("Invalid order data", _package.CodeValidation, fmt.Sprintf(format, args...))
 }

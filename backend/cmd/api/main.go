@@ -11,12 +11,14 @@ import (
 	"backend/config"
 	"backend/database"
 	"backend/internal/container"
-	"backend/internal/currentuser"
+	_package "backend/package"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/extractors"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/session"
 )
 
 ///////////////////////////////////////////////////////////////////
@@ -57,6 +59,7 @@ func main() {
 	app := fiber.New(fiber.Config{
 		AppName:      "The ZINs Beauty and Spa",
 		ServerHeader: "Fiber",
+		ErrorHandler: _package.FiberErrorHandler, // error ของ Fiber (413, panic, ...) ตอบเป็น ErrorResponse
 	})
 
 	// Middleware
@@ -74,12 +77,17 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-	// ผู้ใช้ปลอมแทน login (ลบออกตอนเชื่อม JWT ของจริง)
-	// เปิดเฉพาะเมื่อตั้ง MOCK_AUTH=true เอง ถ้าไม่ได้ตั้ง = ปิด
-	if os.Getenv("MOCK_AUTH") == "true" {
-		app.Use("/api", currentuser.MockMiddleware(db))
-		log.Println("⚠️  MOCK_AUTH=true: using mock user (header X-Mock-User) instead of login")
-	}
+	app.Use(session.New(session.Config{
+		Storage:        nil,
+		CookieHTTPOnly: true,
+		CookieSecure:   cfg.IsProduction(),
+		CookieSameSite: "Lax",
+
+		IdleTimeout:     60 * time.Minute,
+		AbsoluteTimeout: 24 * time.Hour,
+
+		Extractor: extractors.FromCookie("the_zins_session"),
+	}))
 
 	// Routes
 	setupRoute(app, c)
@@ -136,18 +144,28 @@ func setupRoute(app *fiber.App, c *container.Container) {
 	// API Routes
 	api := app.Group("/api")
 
+	// Register Authentication Routes
+	c.AuthHandler.RegisterRoutes(api)
+
 	// Register Customer Routes
 	c.CustomerHandler.RegisterRoutes(api)
 
 	// Register Order Routes
 	c.OrderHandler.RegisterRoutes(api)
 
+	// Register Stock Routes
+	c.StockHandler.RegisterRoutes(api)
+
+	// Register Stock Log Routes
+	c.StockLogHandler.RegisterRoutes(api)
+
+	// Register Course
+	c.CourseHandler.RegisterRoutes(api)
+
 	// 404 Handler
 	app.Use(func(c fiber.Ctx) error {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Route not found",
-			"path":  c.Path(),
-		})
+		return _package.SendJSON(c, fiber.StatusNotFound,
+			_package.ErrorResponse("Route not found", _package.CodeNotFound, c.Method()+" "+c.Path()))
 	})
 
 }

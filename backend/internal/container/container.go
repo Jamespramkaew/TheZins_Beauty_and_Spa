@@ -4,8 +4,14 @@ package container
 
 import (
 	"backend/config"
+	"backend/internal/authentication"
+	"backend/internal/branch"
+	"backend/internal/course"
 	"backend/internal/customer"
+	"backend/internal/employee"
 	"backend/internal/order"
+	"backend/internal/stock"
+	stocklog "backend/internal/stock-log"
 
 	"gorm.io/gorm"
 )
@@ -14,11 +20,20 @@ type Container struct {
 	DB *gorm.DB
 
 	// Handlers
+	AuthHandler     *authentication.Handler
 	CustomerHandler *customer.Handler
 	OrderHandler    *order.Handler
+	StockHandler    *stock.Handler
+	StockLogHandler *stocklog.Handler
+	CourseHandler   *course.Handler
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
+	// Initialize Authentication Module
+	authRepository := authentication.NewRepository(db)
+	authService := authentication.NewService(authRepository)
+	authHandler := authentication.NewHandler(authService)
+
 	// Initialize Customer Module
 	customerRepository := customer.NewRepository(db)
 	customerService := customer.NewService(customerRepository)
@@ -29,10 +44,33 @@ func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
 	orderService := order.NewService(orderRepository)
 	orderHandler := order.NewHandler(orderService)
 
+	// Initialize Stock Module
+	stockRepository := stock.NewRepository(db)
+	stockService := stock.NewService(stockRepository)
+	stockHandler := stock.NewHandler(stockService)
+
+	// Initialize Branch / Employee (repository อย่างเดียว ยังไม่มี service/handler)
+	branchRepository := branch.NewRepository(db)
+	employeeRepository := employee.NewRepository(db)
+
+	// Initialize Stock Log Module
+	stockLogRepository := stocklog.NewRepository(db)
+	stockLogService := stocklog.NewService(stockLogRepository, stockRepository, branchRepository, employeeRepository)
+	stockLogHandler := stocklog.NewHandler(stockLogService)
+
+	// Initialize Course Module
+	courseRepository := course.NewRepository(db)
+	courseService := course.NewService(courseRepository)
+	courseHandler := course.NewHandler(courseService)
+
 	return &Container{
 		DB:              db,
+		AuthHandler:     authHandler,
 		CustomerHandler: customerHandler,
 		OrderHandler:    orderHandler,
+		StockHandler:    stockHandler,
+		StockLogHandler: stockLogHandler,
+		CourseHandler:   courseHandler,
 	}
 }
 

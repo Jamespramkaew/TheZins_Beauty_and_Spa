@@ -1,5 +1,5 @@
 // Package currentuser เก็บและอ่านผู้ใช้ที่ login อยู่ของแต่ละ request ผ่าน c.Locals
-// middleware (ตอนนี้คือ mock, ภายหลังคือ JWT ของจริง) เป็นคนเรียก Set
+// middleware.AuthMiddleware เป็นคนเรียก Set (สร้างจาก session หลัง login)
 // handler ที่ต้องรู้ว่าใครเรียก (เช่น orders) เรียก FromCtx
 package currentuser
 
@@ -7,6 +7,7 @@ import "github.com/gofiber/fiber/v3"
 
 type CurrentUser struct {
 	ID       string
+	Username string
 	Role     string  // "admin" หรือ "branch"
 	BranchID *string // nil = admin (ไม่ผูกสาขา)
 }

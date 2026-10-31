@@ -10,19 +10,16 @@ import (
 	"unicode/utf8"
 
 	"backend/internal/models"
+	"backend/package"
 
 	"gorm.io/gorm"
 )
 
-// error ที่ handler ใช้เลือก HTTP status
+// error ที่ส่งกลับให้ client (_package.SendError แปลง Code เป็น HTTP status)
 var (
-	ErrNotFound     = errors.New("customer not found")   // 404
-	ErrDuplicateHN  = errors.New("hn_no already exists") // 409
-	ErrInvalidInput = errors.New("invalid input")        // 400
+	ErrNotFound    = _package.NewAppError("Customer not found", _package.CodeNotFound, "")                           // 404
+	ErrDuplicateHN = _package.NewAppError("HN number already exists", _package.CodeConflict, "hn_no already exists") // 409
 )
-
-// searchLimit = จำนวนผลค้นหาสูงสุดต่อครั้ง (V1 ยังไม่มี pagination)
-const searchLimit = 50
 
 var (
 	uuidPattern      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -30,10 +27,12 @@ var (
 )
 
 type Service interface {
-	Search(ctx context.Context, q string) ([]models.Customer, error)
+	Search(ctx context.Context, q SearchCustomersQuery) ([]models.Customer, _package.PageMeta, error)
 	GetByID(ctx context.Context, id string) (*models.Customer, error)
 	Create(ctx context.Context, req CreateCustomer) (*models.Customer, error)
 	Update(ctx context.Context, id string, req UpdateCustomer) (*models.Customer, error)
+	ChangeTier(ctx context.Context, id, changedBy string, req ChangeTier) (*models.Customer, error)
+	ListTierChanges(ctx context.Context, id string) ([]TierChangeRow, error)
 }
 
 type service struct {
@@ -44,8 +43,16 @@ func NewService(repository Repository) Service {
 	return &service{repository: repository}
 }
 
-func (s *service) Search(ctx context.Context, q string) ([]models.Customer, error) {
-	return s.repository.Search(ctx, strings.TrimSpace(q), searchLimit)
+func (s *service) Search(ctx context.Context, q SearchCustomersQuery) ([]models.Customer, _package.PageMeta, error) {
+	page, pageSize, err := _package.ParsePaging(q.Page, q.PageSize)
+	if err != nil {
+		return nil, _package.PageMeta{}, err
+	}
+	customers, total, err := s.repository.Search(ctx, strings.TrimSpace(q.Q), page, pageSize)
+	if err != nil {
+		return nil, _package.PageMeta{}, err
+	}
+	return customers, _package.NewPageMeta(page, pageSize, total), nil
 }
 
 func (s *service) GetByID(ctx context.Context, id string) (*models.Customer, error) {
@@ -140,7 +147,7 @@ func (s *service) Update(ctx context.Context, id string, req UpdateCustomer) (*m
 	}
 
 	if len(fields) == 0 {
-		return nil, fmt.Errorf("%w: no fields to update", ErrInvalidInput)
+		return nil, invalid("no fields to update")
 	}
 
 	if err := s.repository.Update(ctx, id, fields); err != nil {
@@ -154,13 +161,40 @@ func (s *service) Update(ctx context.Context, id string, req UpdateCustomer) (*m
 	return s.repository.GetByID(ctx, id)
 }
 
+// ChangeTier เปลี่ยนระดับลูกค้า changedBy = id ของบัญชีที่ login อยู่ (มาจาก handler ไม่ได้มาจาก body)
+func (s *service) ChangeTier(ctx context.Context, id, changedBy string, req ChangeTier) (*models.Customer, error) {
+	if !uuidPattern.MatchString(id) {
+		return nil, ErrNotFound
+	}
+
+	tier := strings.TrimSpace(req.Tier)
+	if tier != "general" && tier != "vip" {
+		return nil, invalid("tier must be general or vip")
+	}
+
+	customer, err := s.repository.ChangeTier(ctx, id, tier, changedBy)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return customer, err
+}
+
+// ListTierChanges ประวัติการเปลี่ยนระดับ ใหม่ → เก่า
+func (s *service) ListTierChanges(ctx context.Context, id string) ([]TierChangeRow, error) {
+	// เช็คก่อนว่ามีลูกค้าคนนี้ ไม่งั้นลูกค้าที่ไม่มีอยู่จริงจะได้ [] เหมือนลูกค้าที่ยังไม่เคยเปลี่ยนระดับ
+	if _, err := s.GetByID(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.repository.ListTierChanges(ctx, id)
+}
+
 // checkText ตรวจว่าต้องมีค่าไหม และยาวไม่เกิน maxLen ตัวอักษร
 func checkText(field, value string, required bool, maxLen int) error {
 	if required && value == "" {
-		return fmt.Errorf("%w: %s is required", ErrInvalidInput, field)
+		return invalid("%s is required", field)
 	}
 	if utf8.RuneCountInString(value) > maxLen {
-		return fmt.Errorf("%w: %s must be at most %d characters", ErrInvalidInput, field, maxLen)
+		return invalid("%s must be at most %d characters", field, maxLen)
 	}
 	return nil
 }
@@ -188,7 +222,7 @@ func parseCitizenID(value *string) (*string, error) {
 		return nil, nil
 	}
 	if !citizenIDPattern.MatchString(v) {
-		return nil, fmt.Errorf("%w: citizen_id must be 13 digits", ErrInvalidInput)
+		return nil, invalid("citizen_id must be 13 digits")
 	}
 	return &v, nil
 }
@@ -204,7 +238,12 @@ func parseBDay(value *string) (*time.Time, error) {
 	}
 	t, err := time.Parse(time.DateOnly, v)
 	if err != nil {
-		return nil, fmt.Errorf("%w: b_day must be YYYY-MM-DD", ErrInvalidInput)
+		return nil, invalid("b_day must be YYYY-MM-DD")
 	}
 	return &t, nil
+}
+
+// invalid สร้าง error 400 พร้อมรายละเอียดว่าข้อมูลช่องไหนผิด
+func invalid(format string, args ...any) error {
+	return _package.NewAppError("Invalid customer data", _package.CodeValidation, fmt.Sprintf(format, args...))
 }

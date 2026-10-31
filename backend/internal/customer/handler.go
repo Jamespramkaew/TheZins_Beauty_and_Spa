@@ -1,13 +1,15 @@
 package customer
 
 import (
-	"errors"
-	"log"
-
+	"backend/internal/currentuser"
+	"backend/internal/middleware"
 	"backend/package"
 
 	"github.com/gofiber/fiber/v3"
 )
+
+// errLoginRequired ตอบ 401 เมื่อไม่มีผู้ใช้ (ยังไม่ login)
+var errLoginRequired = _package.NewAppError("Login required", _package.CodeUnauthorized, "")
 
 type Handler struct {
 	service Service
@@ -18,27 +20,35 @@ func NewHandler(service Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
-	router.Get("/customers", h.Search)
-	router.Get("/customers/:id", h.GetByID)
-	router.Post("/customers", h.Create)
-	router.Patch("/customers/:id", h.Update)
+	customers := router.Group("/customers", middleware.AuthMiddleware)
+	customers.Get("", h.Search)
+	customers.Get("/:id", h.GetByID)
+	customers.Post("", middleware.ReqEmptyCheck, h.Create)
+	customers.Patch("/:id", middleware.ReqEmptyCheck, h.Update)
+	customers.Post("/:id/tier", middleware.ReqEmptyCheck, h.ChangeTier)
+	customers.Get("/:id/tier-changes", h.ListTierChanges)
 }
 
-// Search GET /api/customers?q=
+// Search GET /api/customers?q=&page=&page_size=
 func (h *Handler) Search(c fiber.Ctx) error {
-	customers, err := h.service.Search(c.Context(), c.Query("q"))
+	q := SearchCustomersQuery{
+		Q:        c.Query("q"),
+		Page:     c.Query("page"),
+		PageSize: c.Query("page_size"),
+	}
+	customers, meta, err := h.service.Search(c.Context(), q)
 	if err != nil {
-		return sendError(c, err)
+		return _package.SendError(c, err, "customer")
 	}
 	return _package.SendJSON(c, fiber.StatusOK,
-		_package.SuccessResponse("Customers retrieved successfully", customers))
+		_package.SuccessPagedResponse("Customers retrieved successfully", customers, meta))
 }
 
 // GetByID GET /api/customers/:id
 func (h *Handler) GetByID(c fiber.Ctx) error {
 	customer, err := h.service.GetByID(c.Context(), c.Params("id"))
 	if err != nil {
-		return sendError(c, err)
+		return _package.SendError(c, err, "customer")
 	}
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessResponse("Customer retrieved successfully", customer))
@@ -48,12 +58,12 @@ func (h *Handler) GetByID(c fiber.Ctx) error {
 func (h *Handler) Create(c fiber.Ctx) error {
 	var req CreateCustomer
 	if err := c.Bind().Body(&req); err != nil {
-		return sendBadBody(c, err)
+		return _package.SendBadBody(c, err)
 	}
 
 	customer, err := h.service.Create(c.Context(), req)
 	if err != nil {
-		return sendError(c, err)
+		return _package.SendError(c, err, "customer")
 	}
 	return _package.SendJSON(c, fiber.StatusCreated,
 		_package.SuccessResponse("Customer created successfully", customer))
@@ -63,39 +73,44 @@ func (h *Handler) Create(c fiber.Ctx) error {
 func (h *Handler) Update(c fiber.Ctx) error {
 	var req UpdateCustomer
 	if err := c.Bind().Body(&req); err != nil {
-		return sendBadBody(c, err)
+		return _package.SendBadBody(c, err)
 	}
 
 	customer, err := h.service.Update(c.Context(), c.Params("id"), req)
 	if err != nil {
-		return sendError(c, err)
+		return _package.SendError(c, err, "customer")
 	}
 	return _package.SendJSON(c, fiber.StatusOK,
 		_package.SuccessResponse("Customer updated successfully", customer))
 }
 
-// sendBadBody ตอบ 400 เมื่อ body ไม่ใช่ JSON หรือชนิดข้อมูลไม่ตรง เช่น "hn_no": 123
-func sendBadBody(c fiber.Ctx, err error) error {
-	return _package.SendJSON(c, fiber.StatusBadRequest,
-		_package.ErrorResponse("Invalid request body", "VALIDATION_ERROR", err.Error()))
+// ChangeTier POST /api/customers/:id/tier
+func (h *Handler) ChangeTier(c fiber.Ctx) error {
+	// ต้องรู้ว่าใครเปลี่ยน (AuthMiddleware ตอบ 401 ไปแล้ว ตรงนี้กันพลาดอีกชั้น)
+	user, ok := currentuser.FromCtx(c)
+	if !ok {
+		return _package.SendError(c, errLoginRequired, "customer")
+	}
+
+	var req ChangeTier
+	if err := c.Bind().Body(&req); err != nil {
+		return _package.SendBadBody(c, err)
+	}
+
+	customer, err := h.service.ChangeTier(c.Context(), c.Params("id"), user.ID, req)
+	if err != nil {
+		return _package.SendError(c, err, "customer")
+	}
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessResponse("Customer tier changed successfully", customer))
 }
 
-// sendError แปลง error จาก service เป็น HTTP status
-func sendError(c fiber.Ctx, err error) error {
-	switch {
-	case errors.Is(err, ErrInvalidInput):
-		return _package.SendJSON(c, fiber.StatusBadRequest,
-			_package.ErrorResponse("Invalid customer data", "VALIDATION_ERROR", err.Error()))
-	case errors.Is(err, ErrNotFound):
-		return _package.SendJSON(c, fiber.StatusNotFound,
-			_package.ErrorResponse("Customer not found", "NOT_FOUND", ""))
-	case errors.Is(err, ErrDuplicateHN):
-		return _package.SendJSON(c, fiber.StatusConflict,
-			_package.ErrorResponse("HN number already exists", "CONFLICT", err.Error()))
-	default:
-		// error อื่นมาจากฐานข้อมูล เขียนลง log ฝั่ง server แต่ไม่ส่งรายละเอียดให้ client
-		log.Printf("customer: %v", err)
-		return _package.SendJSON(c, fiber.StatusInternalServerError,
-			_package.ErrorResponse("Something went wrong", "DATABASE_ERROR", ""))
+// ListTierChanges GET /api/customers/:id/tier-changes
+func (h *Handler) ListTierChanges(c fiber.Ctx) error {
+	changes, err := h.service.ListTierChanges(c.Context(), c.Params("id"))
+	if err != nil {
+		return _package.SendError(c, err, "customer")
 	}
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessResponse("Tier changes retrieved successfully", changes))
 }

@@ -20,7 +20,7 @@ type Repository interface {
 	FindCourses(ctx context.Context, ids []string) (map[string]models.Course, error)
 	FindStocks(ctx context.Context, ids []string) (map[string]models.Stock, error)
 	Create(ctx context.Context, yymm string, order *models.Order, items []models.OrderItem, payments []models.Payment) error
-	List(ctx context.Context, f ListFilter) ([]OrderRow, error)
+	List(ctx context.Context, f ListFilter) ([]OrderRow, int64, error)
 	GetByID(ctx context.Context, id string) (*models.Order, []models.OrderItem, []models.Payment, error)
 	AddPayment(ctx context.Context, orderID string, payment *models.Payment) error
 }
@@ -36,7 +36,8 @@ type ListFilter struct {
 	From       *time.Time // order_date ตั้งแต่วันนี้ (รวมวันนั้น)
 	To         *time.Time // order_date ถึงวันนี้ (รวมวันนั้น)
 	Status     *string    // paid / partial / unpaid
-	Limit      int
+	Page       int        // เริ่มที่ 1
+	PageSize   int
 }
 
 // OrderRow 1 แถวในรายการบิล: ข้อมูลบิล + รหัสสาขา + ลูกค้า + ยอดรวม/ยอดจ่ายที่รวมมาจาก SQL
@@ -149,17 +150,16 @@ func (r *repository) Create(ctx context.Context, yymm string, order *models.Orde
 	})
 }
 
-// List รายการบิลตามเงื่อนไข เรียงจากวันขายล่าสุด
+// List รายการบิลตามเงื่อนไขทีละหน้า เรียงจากวันขายล่าสุด
 // ยอดรวมและยอดจ่ายรวมด้วย SQL (SUM) จึงกรองตามสถานะได้ในคำสั่งเดียว
-func (r *repository) List(ctx context.Context, f ListFilter) ([]OrderRow, error) {
+// คืนจำนวนบิลที่ตรงเงื่อนไขทั้งหมด (total) ไว้ทำ meta
+func (r *repository) List(ctx context.Context, f ListFilter) ([]OrderRow, int64, error) {
 	itemTotals := r.db.Model(&models.OrderItem{}).
 		Select("order_id, SUM(qty * unit_price - discount) AS total").Group("order_id")
 	paidTotals := r.db.Model(&models.Payment{}).
 		Select("order_id, SUM(amount) AS paid").Group("order_id")
 
 	q := r.db.WithContext(ctx).Table("orders AS o").
-		Select("o.*, b.code AS branch_code, c.hn_no AS customer_hn_no, "+
-			"TRIM(CONCAT(c.fname, ' ', c.lname)) AS customer_name, t.total, COALESCE(p.paid, 0) AS paid").
 		Joins("JOIN branches AS b ON b.id = o.branch_id").
 		Joins("JOIN customers AS c ON c.id = o.customer_id").
 		Joins("JOIN (?) AS t ON t.order_id = o.id", itemTotals).
@@ -189,9 +189,27 @@ func (r *repository) List(ctx context.Context, f ListFilter) ([]OrderRow, error)
 		}
 	}
 
+	// Session ทำให้ใช้ query เดียวกันซ้ำได้ทั้งตอน Count และ Scan
+	q = q.Session(&gorm.Session{})
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// order_no ไม่ซ้ำกัน จึงเป็นตัวตัดสินเมื่อ order_date เท่ากัน (ข้ามหน้าแล้วแถวไม่ซ้ำ ไม่หาย)
 	rows := []OrderRow{}
-	err := q.Order("o.order_date DESC, o.order_no DESC").Limit(f.Limit).Scan(&rows).Error
-	return rows, err
+	err := q.
+		Select("o.*, b.code AS branch_code, c.hn_no AS customer_hn_no, " +
+			"TRIM(CONCAT(c.fname, ' ', c.lname)) AS customer_name, t.total, COALESCE(p.paid, 0) AS paid").
+		Order("o.order_date DESC, o.order_no DESC").
+		Limit(f.PageSize).
+		Offset((f.Page - 1) * f.PageSize).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return rows, total, nil
 }
 
 // GetByID บิล 1 ใบ พร้อมลูกค้า สาขา รายการ (เรียงตาม line_no พร้อมชื่อคอร์ส/สินค้า) และการจ่าย (เรียงตามเวลา)
