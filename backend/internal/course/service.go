@@ -15,7 +15,7 @@ import (
 )
 
 type Service interface {
-	GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]models.Course, _package.PageMeta, error)
+	GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]CourseResponse, _package.PageMeta, error)
 	AddCourse(ctx context.Context, data AddCourseRequest) (models.Course, error)
 	UpdateCourseById(ctx context.Context, courseId string, data UpdateCourseRequest) (models.Course, error)
 	DeleteCourseById(ctx context.Context, courseId string) error
@@ -31,7 +31,7 @@ func NewService(repository Repository) Service {
 	return &service{repository: repository}
 }
 
-func (s *service) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]models.Course, _package.PageMeta, error) {
+func (s *service) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]CourseResponse, _package.PageMeta, error) {
 	page, pageSize, err := _package.ParsePaging(q.Page, q.PageSize)
 	if err != nil {
 		return nil, _package.PageMeta{}, err
@@ -40,7 +40,11 @@ func (s *service) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]mode
 	if err != nil {
 		return nil, _package.PageMeta{}, err
 	}
-	return courses, _package.NewPageMeta(page, pageSize, total), nil
+	res := make([]CourseResponse, 0, len(courses))
+	for _, c := range courses {
+		res = append(res, toCourseResponse(c))
+	}
+	return res, _package.NewPageMeta(page, pageSize, total), nil
 }
 
 func (s *service) AddCourse(ctx context.Context, data AddCourseRequest) (models.Course, error) {

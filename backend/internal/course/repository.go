@@ -28,7 +28,7 @@ func NewRepository(db *gorm.DB) Repository {
 	return &repository{db: db}
 }
 
-// GetAllCourse คืนคอร์สทีละหน้า เรียงตามชื่อ · search ว่าง = ทุกคอร์ส
+// GetAllCourse คืนคอร์สทีละหน้า เรียงตามชื่อ พร้อมของที่คอร์สใช้ (items + stock) · search ว่าง = ทุกคอร์ส
 // คืนจำนวนที่ตรงเงื่อนไขทั้งหมด (total) ไว้ทำ meta
 func (r *repository) GetAllCourse(ctx context.Context, search string, page, pageSize int) ([]models.Course, int64, error) {
 	all := r.db.WithContext(ctx).Model(&models.Course{})
@@ -43,9 +43,20 @@ func (r *repository) GetAllCourse(ctx context.Context, search string, page, page
 		return nil, 0, err
 	}
 
+	// items เรียงตามชื่อสินค้า (stock_id ตัดสินเมื่อชื่อเท่ากัน)
+	itemsByStockName := func(tx *gorm.DB) *gorm.DB {
+		return tx.Select("course_items.*").
+			Joins("JOIN stocks ON stocks.id = course_items.stock_id").
+			Order("stocks.name ASC, course_items.stock_id ASC")
+	}
+	// Unscoped: สินค้าที่ผูกกับคอร์สลบได้แค่ soft delete ต้องยังเห็นชื่อ · response ใช้แค่ id กับชื่อ
+	stockRef := func(tx *gorm.DB) *gorm.DB { return tx.Unscoped().Select("id", "name") }
+
 	var courses []models.Course
 	// id เป็นตัวตัดสินเมื่อชื่อเท่ากัน ไม่งั้นข้ามหน้าแล้วแถวอาจซ้ำหรือตกหล่น
 	err := all.
+		Preload("Items", itemsByStockName).
+		Preload("Items.Stock", stockRef).
 		Order("name ASC, id ASC").
 		Limit(pageSize).
 		Offset((page - 1) * pageSize).

@@ -24,7 +24,7 @@ import (
 // และแปลงผลลัพธ์/error เป็น HTTP status ถูกไหม
 
 type mockService struct {
-	getAll       func(ctx context.Context, q GetAllCourseQuery) ([]models.Course, _package.PageMeta, error)
+	getAll       func(ctx context.Context, q GetAllCourseQuery) ([]CourseResponse, _package.PageMeta, error)
 	addCourse    func(ctx context.Context, data AddCourseRequest) (models.Course, error)
 	updateCourse func(ctx context.Context, id string, data UpdateCourseRequest) (models.Course, error)
 	deleteCourse func(ctx context.Context, id string) error
@@ -36,13 +36,13 @@ type mockService struct {
 	lastID     string
 }
 
-func (m *mockService) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]models.Course, _package.PageMeta, error) {
+func (m *mockService) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]CourseResponse, _package.PageMeta, error) {
 	m.calls++
 	m.lastQuery = q
 	if m.getAll != nil {
 		return m.getAll(ctx, q)
 	}
-	return []models.Course{{ID: idFacial, Name: "Facial"}}, _package.NewPageMeta(1, 20, 1), nil
+	return []CourseResponse{{ID: idFacial, Name: "Facial"}}, _package.NewPageMeta(1, 20, 1), nil
 }
 
 func (m *mockService) AddCourse(ctx context.Context, data AddCourseRequest) (models.Course, error) {
@@ -216,7 +216,7 @@ func TestGetAllCourse_ServiceErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &mockService{getAll: func(ctx context.Context, q GetAllCourseQuery) ([]models.Course, _package.PageMeta, error) {
+			svc := &mockService{getAll: func(ctx context.Context, q GetAllCourseQuery) ([]CourseResponse, _package.PageMeta, error) {
 				return nil, _package.PageMeta{}, tt.err
 			}}
 			app := newTestApp(svc, "admin")
@@ -231,7 +231,7 @@ func TestGetAllCourse_ServiceErrors(t *testing.T) {
 
 // error ภายใน (เช่น DB) ต้องไม่รั่วออกไปให้ client เห็น
 func TestUnknownServiceError_DoesNotLeakInternalMessage(t *testing.T) {
-	svc := &mockService{getAll: func(ctx context.Context, q GetAllCourseQuery) ([]models.Course, _package.PageMeta, error) {
+	svc := &mockService{getAll: func(ctx context.Context, q GetAllCourseQuery) ([]CourseResponse, _package.PageMeta, error) {
 		return nil, _package.PageMeta{}, assert.AnError
 	}}
 	app := newTestApp(svc, "admin")

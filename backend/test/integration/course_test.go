@@ -245,6 +245,38 @@ func TestCourseRepo_GetAllCourse_PagesWithoutDuplicatesAndExcludesDeleted(t *tes
 	assert.Empty(t, rows, "เกินหน้าสุดท้าย = ว่าง ไม่ error")
 }
 
+// ของที่คอร์สใช้ต้องมาด้วย เรียงตามชื่อสินค้า และสินค้าที่ถูก soft delete ต้องยังเห็นชื่อ
+func TestCourseRepo_GetAllCourse_PreloadsItemsWithStock(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	p := uniqueName("itest-items")
+	withItems := mkCourse(t, tx, p+"-a")
+	noItems := mkCourse(t, tx, p+"-b")
+
+	stockB := mkStock(t, tx, p+"-stock-b")
+	stockA := mkStock(t, tx, p+"-stock-a")
+	require.NoError(t, tx.Create(&models.CourseItem{CourseID: withItems.ID, StockID: stockB.ID, UseQty: 2}).Error)
+	require.NoError(t, tx.Create(&models.CourseItem{CourseID: withItems.ID, StockID: stockA.ID, UseQty: 1}).Error)
+	require.NoError(t, tx.Delete(&models.Stock{}, "id = ?", stockB.ID).Error)
+
+	rows, _, err := repo.GetAllCourse(ctx, p, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, []string{p + "-a", p + "-b"}, courseNames(rows))
+
+	items := rows[0].Items
+	require.Len(t, items, 2, "สินค้าที่ถูก soft delete ต้องไม่ทำให้ item หาย")
+	for _, it := range items {
+		require.NotNil(t, it.Stock, "ต้อง preload stock มาด้วย")
+	}
+	assert.Equal(t, stockA.ID, items[0].StockID, "ต้องเรียงตามชื่อสินค้า")
+	assert.Equal(t, 1, items[0].UseQty)
+	assert.Equal(t, p+"-stock-b", items[1].Stock.Name, "สินค้าที่ถูก soft delete ต้องยังเห็นชื่อ")
+	assert.Equal(t, 2, items[1].UseQty)
+
+	assert.Empty(t, rows[1].Items, "คอร์สที่ไม่มีของที่ใช้ = ว่าง")
+	assert.Equal(t, noItems.ID, rows[1].ID)
+}
+
 // ---------- Repository: search ----------
 
 func courseNames(rows []models.Course) []string {
