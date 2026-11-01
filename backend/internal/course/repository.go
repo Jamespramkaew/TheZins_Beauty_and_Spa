@@ -12,7 +12,8 @@ import (
 type Repository interface {
 	GetAllCourse(ctx context.Context, search string, page, pageSize int) ([]models.Course, int64, error)
 	FindCourseByName(ctx context.Context, name string) (*models.Course, error)
-	CreateCourse(ctx context.Context, course models.Course) (models.Course, error)
+	CreateCourse(ctx context.Context, course models.Course, items []models.CourseItem) (models.Course, error)
+	FindStocksByIds(ctx context.Context, ids []string) ([]models.Stock, error)
 	FindCourseById(ctx context.Context, id string) (*models.Course, error)
 	UpdateCourse(ctx context.Context, course models.Course) (models.Course, error)
 	CheckCourseHasRelation(ctx context.Context, courseId string) (bool, error)
@@ -43,20 +44,10 @@ func (r *repository) GetAllCourse(ctx context.Context, search string, page, page
 		return nil, 0, err
 	}
 
-	// items เรียงตามชื่อสินค้า (stock_id ตัดสินเมื่อชื่อเท่ากัน)
-	itemsByStockName := func(tx *gorm.DB) *gorm.DB {
-		return tx.Select("course_items.*").
-			Joins("JOIN stocks ON stocks.id = course_items.stock_id").
-			Order("stocks.name ASC, course_items.stock_id ASC")
-	}
-	// Unscoped: สินค้าที่ผูกกับคอร์สลบได้แค่ soft delete ต้องยังเห็นชื่อ · response ใช้แค่ id กับชื่อ
-	stockRef := func(tx *gorm.DB) *gorm.DB { return tx.Unscoped().Select("id", "name") }
-
 	var courses []models.Course
 	// id เป็นตัวตัดสินเมื่อชื่อเท่ากัน ไม่งั้นข้ามหน้าแล้วแถวอาจซ้ำหรือตกหล่น
 	err := all.
-		Preload("Items", itemsByStockName).
-		Preload("Items.Stock", stockRef).
+		Scopes(preloadItems).
 		Order("name ASC, id ASC").
 		Limit(pageSize).
 		Offset((page - 1) * pageSize).
@@ -65,6 +56,19 @@ func (r *repository) GetAllCourse(ctx context.Context, search string, page, page
 		return nil, 0, err
 	}
 	return courses, total, nil
+}
+
+// preloadItems โหลดของที่คอร์สใช้ (items + stock) ใช้ร่วมกันทุกที่ที่คืน CourseResponse ลำดับจะได้ตรงกัน
+// items เรียงตามชื่อสินค้าด้วย collation ของ DB (stock_id ตัดสินเมื่อชื่อเท่ากัน)
+// stock เป็น Unscoped: สินค้าที่ผูกกับคอร์สลบได้แค่ soft delete ต้องยังเห็นชื่อ · response ใช้แค่ id กับชื่อ
+func preloadItems(db *gorm.DB) *gorm.DB {
+	return db.
+		Preload("Items", func(tx *gorm.DB) *gorm.DB {
+			return tx.Select("course_items.*").
+				Joins("JOIN stocks ON stocks.id = course_items.stock_id").
+				Order("stocks.name ASC, course_items.stock_id ASC")
+		}).
+		Preload("Items.Stock", func(tx *gorm.DB) *gorm.DB { return tx.Unscoped().Select("id", "name") })
 }
 
 // escapeLike กัน % และ _ ที่ user พิมพ์มาถูกตีความเป็น wildcard ของ ILIKE
@@ -87,12 +91,43 @@ func (r *repository) FindCourseByName(ctx context.Context, name string) (*models
 	return &course, nil
 }
 
-// CreateCourse สร้างคอร์สใหม่
-func (r *repository) CreateCourse(ctx context.Context, course models.Course) (models.Course, error) {
-	if err := r.db.WithContext(ctx).Create(&course).Error; err != nil {
+// CreateCourse สร้างคอร์สใหม่พร้อมของที่ใช้ (course_id ใน items ใส่ให้เอง) ในทรานแซกชันเดียว
+// ถ้าบันทึก item ไม่ผ่าน คอร์สจะไม่ถูกสร้าง · คืนคอร์สที่อ่านกลับจาก DB พร้อม items แบบเดียวกับ GetAllCourse
+func (r *repository) CreateCourse(ctx context.Context, course models.Course, items []models.CourseItem) (models.Course, error) {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Omit กัน GORM บันทึก association ใน course.Items เอง
+		if err := tx.Omit("Items").Create(&course).Error; err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		for i := range items {
+			items[i].CourseID = course.ID
+		}
+		return tx.Omit("Course", "Stock").Create(&items).Error
+	})
+	if err != nil {
 		return models.Course{}, err
 	}
-	return course, nil
+
+	var created models.Course
+	if err := r.db.WithContext(ctx).Scopes(preloadItems).First(&created, "id = ?", course.ID).Error; err != nil {
+		return models.Course{}, err
+	}
+	return created, nil
+}
+
+// FindStocksByIds ค้นหาสินค้าตาม id (ไม่รวมที่ถูกลบด้วย soft delete) ตัวที่ไม่เจอจะไม่อยู่ในผลลัพธ์
+func (r *repository) FindStocksByIds(ctx context.Context, ids []string) ([]models.Stock, error) {
+	var stocks []models.Stock
+	if len(ids) == 0 {
+		return stocks, nil
+	}
+	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&stocks).Error; err != nil {
+		return nil, err
+	}
+	return stocks, nil
 }
 
 // FindCourseById ค้นหาคอร์สตาม id (ไม่รวมที่ถูกลบด้วย soft delete) ไม่เจอคืน nil

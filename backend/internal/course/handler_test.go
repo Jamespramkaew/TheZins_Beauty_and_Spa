@@ -25,7 +25,7 @@ import (
 
 type mockService struct {
 	getAll       func(ctx context.Context, q GetAllCourseQuery) ([]CourseResponse, _package.PageMeta, error)
-	addCourse    func(ctx context.Context, data AddCourseRequest) (models.Course, error)
+	addCourse    func(ctx context.Context, data AddCourseRequest) (CourseResponse, error)
 	updateCourse func(ctx context.Context, id string, data UpdateCourseRequest) (models.Course, error)
 	deleteCourse func(ctx context.Context, id string) error
 
@@ -45,13 +45,13 @@ func (m *mockService) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]
 	return []CourseResponse{{ID: idFacial, Name: "Facial"}}, _package.NewPageMeta(1, 20, 1), nil
 }
 
-func (m *mockService) AddCourse(ctx context.Context, data AddCourseRequest) (models.Course, error) {
+func (m *mockService) AddCourse(ctx context.Context, data AddCourseRequest) (CourseResponse, error) {
 	m.calls++
 	m.lastAdd = data
 	if m.addCourse != nil {
 		return m.addCourse(ctx, data)
 	}
-	return models.Course{ID: idFacial, Name: data.Name}, nil
+	return CourseResponse{ID: idFacial, Name: data.Name, Items: []CourseItemResponse{}}, nil
 }
 
 func (m *mockService) UpdateCourseById(ctx context.Context, id string, data UpdateCourseRequest) (models.Course, error) {
@@ -263,6 +263,38 @@ func TestAddCourse_Handler_Created(t *testing.T) {
 	assert.Equal(t, "facial", got.Category)
 }
 
+func TestAddCourse_Handler_ParsesItems(t *testing.T) {
+	svc := &mockService{}
+	app := newTestApp(svc, "admin")
+
+	resp, body := doRequest(t, app, http.MethodPost, "/courses",
+		`{"name":"x","price":1,"max_session":1,"items":[{"stock_id":"`+idFacial+`","use_qty":2}]}`)
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	assert.Equal(t, []CourseItemRequest{{StockID: idFacial, UseQty: 2}}, svc.lastAdd.Items)
+	data, ok := body["data"].(map[string]any)
+	require.True(t, ok, "ต้องมี data: %v", body)
+	assert.Equal(t, []any{}, data["items"], "response ต้องมี items รูปแบบเดียวกับ GET")
+}
+
+func TestAddCourse_Handler_BadItems_Returns400(t *testing.T) {
+	tests := []struct{ name, body string }{
+		{"items ไม่ใช่ array", `{"name":"x","items":"abc"}`},
+		{"use_qty เป็นข้อความ", `{"name":"x","items":[{"stock_id":"a","use_qty":"2"}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockService{}
+			app := newTestApp(svc, "admin")
+
+			resp, _ := doRequest(t, app, http.MethodPost, "/courses", tt.body)
+
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			assert.Equal(t, 0, svc.calls, "ห้ามเรียก service")
+		})
+	}
+}
+
 // ชื่อ camelCase แบบเก่าต้องไม่ถูกอ่าน (เงียบๆ เป็นค่าว่าง แล้ว service จะตอบ 400 เอง)
 func TestAddCourse_Handler_IgnoresCamelCaseFields(t *testing.T) {
 	svc := &mockService{}
@@ -311,8 +343,8 @@ func TestAddCourse_Handler_ServiceErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &mockService{addCourse: func(ctx context.Context, data AddCourseRequest) (models.Course, error) {
-				return models.Course{}, tt.err
+			svc := &mockService{addCourse: func(ctx context.Context, data AddCourseRequest) (CourseResponse, error) {
+				return CourseResponse{}, tt.err
 			}}
 			app := newTestApp(svc, "admin")
 

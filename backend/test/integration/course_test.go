@@ -102,7 +102,7 @@ func TestCourseRepo_CreateAndFind(t *testing.T) {
 	created, err := repo.CreateCourse(ctx, models.Course{
 		Name: name, Price: decimal.NewFromInt(3500), MaxSession: 10, ValidDay: &validDay,
 		ServiceComm: decimal.NewFromInt(150), Category: "facial", IsActive: true,
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, created.ID, "DB ต้องเจน uuid ให้")
 
@@ -177,14 +177,14 @@ func TestCourseRepo_NameUniqueOnlyAmongActive(t *testing.T) {
 	first := mkCourse(t, tx, name)
 
 	err := expectDBError(t, tx, func() error {
-		_, err := repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1})
+		_, err := repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1}, nil)
 		return err
 	})
 	assert.ErrorIs(t, err, gorm.ErrDuplicatedKey, "ชื่อซ้ำกับคอร์สที่ยังอยู่ DB ต้องกัน")
 
 	softDeleteCourse(t, tx, first.ID)
 
-	_, err = repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1})
+	_, err = repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1}, nil)
 	assert.NoError(t, err, "ลบไปแล้ว ต้องสร้างชื่อเดิมได้")
 }
 
@@ -499,4 +499,96 @@ func TestCourseService_Add_AfterSoftDeleteSameNameAllowed(t *testing.T) {
 	created, err := svc.AddCourse(ctx, course.AddCourseRequest{Name: old.Name, Price: decimal.NewFromInt(1), MaxSession: 1})
 	require.NoError(t, err)
 	assert.NotEqual(t, old.ID, created.ID)
+}
+
+// ---------- POST พร้อม items ----------
+
+func countCourseItems(t *testing.T, tx *gorm.DB, courseID string) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, tx.Model(&models.CourseItem{}).Where("course_id = ?", courseID).Count(&n).Error)
+	return n
+}
+
+func TestCourseService_Add_WithItems(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	p := uniqueName("itest-add-items")
+	// ชื่อไทย: ลำดับขึ้นกับ collation ของ DB จึงเทียบกับ GET แทนการ hardcode ลำดับ
+	cotton := mkStock(t, tx, p+"-สำลี")
+	gel := mkStock(t, tx, p+"-เจล")
+	qtyByStock := map[string]int{cotton.ID: 2, gel.ID: 1}
+
+	created, err := svc.AddCourse(ctx, course.AddCourseRequest{
+		Name: p, Price: decimal.NewFromInt(1), MaxSession: 1,
+		Items: []course.CourseItemRequest{{StockID: cotton.ID, UseQty: 2}, {StockID: gel.ID, UseQty: 1}},
+	})
+	require.NoError(t, err)
+	require.Len(t, created.Items, 2)
+	for _, it := range created.Items {
+		assert.NotEmpty(t, it.Stock.Name, "ต้องมีชื่อสินค้า")
+		assert.Equal(t, qtyByStock[it.Stock.ID], it.UseQty)
+	}
+
+	// สิ่งที่บันทึกจริงและลำดับต้องตรงกับที่ GET คืน
+	rows, _, err := course.NewRepository(tx).GetAllCourse(ctx, p, 1, 20)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Len(t, rows[0].Items, 2)
+	for i, it := range rows[0].Items {
+		assert.Equal(t, it.StockID, created.Items[i].Stock.ID, "ลำดับ items ของ POST ต้องตรงกับ GET")
+		assert.Equal(t, it.UseQty, created.Items[i].UseQty)
+	}
+}
+
+func TestCourseService_Add_SoftDeletedStockRejected(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	name := uniqueName("itest-add-gone")
+	gone := mkStock(t, tx, uniqueName("itest-gone-stock"))
+	require.NoError(t, tx.Delete(&models.Stock{}, "id = ?", gone.ID).Error)
+
+	_, err := svc.AddCourse(ctx, course.AddCourseRequest{
+		Name: name, Price: decimal.NewFromInt(1), MaxSession: 1,
+		Items: []course.CourseItemRequest{{StockID: gone.ID, UseQty: 1}},
+	})
+	assert.Equal(t, _package.CodeValidation, courseErrCode(err))
+
+	found, err := course.NewRepository(tx).FindCourseByName(ctx, name)
+	require.NoError(t, err)
+	assert.Nil(t, found, "item ไม่ผ่าน คอร์สต้องไม่ถูกสร้าง")
+}
+
+// item บันทึกไม่ผ่าน (FK) ต้อง rollback คอร์สด้วย ไม่ค้างเป็นคอร์สที่ไม่มีของ
+func TestCourseRepo_CreateCourse_RollsBackWhenItemFails(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	name := uniqueName("itest-rollback")
+
+	// savepoint แยก เพราะ error ใน Postgres ทำให้ทรานแซกชันนอกใช้ต่อไม่ได้
+	require.NoError(t, tx.SavePoint("before_create").Error)
+	_, err := repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1},
+		[]models.CourseItem{{StockID: "99999999-9999-9999-9999-999999999999", UseQty: 1}})
+	require.ErrorIs(t, err, gorm.ErrForeignKeyViolated)
+	require.NoError(t, tx.RollbackTo("before_create").Error)
+
+	found, err := repo.FindCourseByName(ctx, name)
+	require.NoError(t, err)
+	assert.Nil(t, found)
+}
+
+func TestCourseRepo_CreateCourse_SavesItems(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	stock := mkStock(t, tx, uniqueName("itest-save-stock"))
+
+	created, err := repo.CreateCourse(ctx,
+		models.Course{Name: uniqueName("itest-save"), Price: decimal.NewFromInt(1), MaxSession: 1},
+		[]models.CourseItem{{StockID: stock.ID, UseQty: 3}})
+	require.NoError(t, err)
+	require.Len(t, created.Items, 1)
+	assert.Equal(t, created.ID, created.Items[0].CourseID)
+	require.NotNil(t, created.Items[0].Stock, "ต้องอ่านกลับพร้อม stock")
+	assert.Equal(t, stock.Name, created.Items[0].Stock.Name)
+	assert.EqualValues(t, 1, countCourseItems(t, tx, created.ID))
 }

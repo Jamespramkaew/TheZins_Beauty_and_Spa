@@ -18,6 +18,14 @@ type AddCourseRequest struct {
 	ValidDay    *int            `json:"valid_day" validate:"omitempty,gte=1"`
 	ServiceComm decimal.Decimal `json:"service_comm" validate:"gte=0"`
 	Category    string          `json:"category" validate:"max=50"`
+	// ของที่ใช้ต่อการทำ 1 ครั้ง ไม่ส่ง / [] = คอร์สที่ไม่ใช้ของ
+	Items []CourseItemRequest `json:"items" validate:"omitempty,dive"`
+}
+
+// CourseItemRequest = ของที่คอร์สใช้ 1 อย่าง (ห้ามส่ง stock_id ซ้ำใน list เดียวกัน)
+type CourseItemRequest struct {
+	StockID string `json:"stock_id" validate:"required,uuid"`
+	UseQty  int    `json:"use_qty" validate:"required,gte=1"` // ดูความหมายที่ models.CourseItem
 }
 
 // UpdateCourseRequest รับ body ของ PATCH /api/courses/:id

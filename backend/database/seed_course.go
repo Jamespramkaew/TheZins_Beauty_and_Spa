@@ -61,8 +61,9 @@ func SeedCourseItems(db *gorm.DB) error {
 			if !course.IsActive || !stock.IsActive {
 				return fmt.Errorf("%s: course and stock must be active", where)
 			}
-			if ci.useQty <= 0 || ci.useQty > stock.UsesPerUnit {
-				return fmt.Errorf("%s: useQty must be between 1 and %d", where, stock.UsesPerUnit)
+			// กติกาเดียวกับ POST /api/courses: ของที่เปิดเป็นกระปุกใช้ต่อครั้งได้ไม่เกิน 1 กระปุก
+			if ci.useQty <= 0 || (stock.UsesPerUnit > 1 && ci.useQty > stock.UsesPerUnit) {
+				return fmt.Errorf("%s: useQty must be at least 1 (and at most %d for this stock)", where, stock.UsesPerUnit)
 			}
 
 			item := models.CourseItem{CourseID: course.ID, StockID: stock.ID, UseQty: ci.useQty}

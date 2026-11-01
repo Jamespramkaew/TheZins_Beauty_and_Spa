@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 type fakeRepo struct {
 	courses []models.Course
 	saved   *models.Course
+	stocks  []models.Stock // สินค้าที่ยังไม่ถูกลบ
+	created *models.Course // คอร์สที่ส่งเข้า CreateCourse (รวม items)
 
 	related     map[string]bool // course id ที่มีตารางอื่นอ้างถึง
 	hardErr     error           // error ที่ HardDeleteCourse จะคืน (จำลอง FK)
@@ -63,8 +66,32 @@ func (r *fakeRepo) FindCourseByName(ctx context.Context, name string) (*models.C
 	return deleted, nil
 }
 
-func (r *fakeRepo) CreateCourse(ctx context.Context, course models.Course) (models.Course, error) {
+// CreateCourse เหมือนของจริงที่อ่านกลับพร้อม stock (ไม่ได้เรียง ลำดับทดสอบใน integration)
+func (r *fakeRepo) CreateCourse(ctx context.Context, course models.Course, items []models.CourseItem) (models.Course, error) {
+	course.ID = idNew
+	for i := range items {
+		items[i].CourseID = course.ID
+		for _, st := range r.stocks {
+			if st.ID == items[i].StockID {
+				items[i].Stock = &models.Stock{ID: st.ID, Name: st.Name}
+			}
+		}
+	}
+	course.Items = items
+	r.created = &course
 	return course, nil
+}
+
+func (r *fakeRepo) FindStocksByIds(ctx context.Context, ids []string) ([]models.Stock, error) {
+	var found []models.Stock
+	for _, id := range ids {
+		for _, st := range r.stocks {
+			if st.ID == id {
+				found = append(found, st)
+			}
+		}
+	}
+	return found, nil
 }
 
 func (r *fakeRepo) FindCourseById(ctx context.Context, id string) (*models.Course, error) {
@@ -87,6 +114,11 @@ const (
 	idMassage = "22222222-2222-2222-2222-222222222222"
 	idOldSpa  = "33333333-3333-3333-3333-333333333333"
 	idMissing = "99999999-9999-9999-9999-999999999999"
+	idNew     = "44444444-4444-4444-4444-444444444444"
+
+	idGel      = "aaaaaaaa-0000-0000-0000-000000000001" // uses_per_unit 20
+	idCotton   = "aaaaaaaa-0000-0000-0000-000000000002" // uses_per_unit 1
+	idInactive = "aaaaaaaa-0000-0000-0000-000000000003"
 )
 
 func newFakeRepo() *fakeRepo {
@@ -96,6 +128,10 @@ func newFakeRepo() *fakeRepo {
 		{ID: idMassage, Name: "Massage", Price: decimal.NewFromInt(800), MaxSession: 10, IsActive: true},
 		{ID: idOldSpa, Name: "Old Spa", MaxSession: 1,
 			DeletedAt: gorm.DeletedAt{Time: time.Now(), Valid: true}},
+	}, stocks: []models.Stock{
+		{ID: idGel, Name: "เจล", UsesPerUnit: 20, IsActive: true},
+		{ID: idCotton, Name: "สำลี", UsesPerUnit: 1, IsActive: true},
+		{ID: idInactive, Name: "เลิกขาย", UsesPerUnit: 1, IsActive: false},
 	}}
 }
 
@@ -266,5 +302,69 @@ func TestEscapeLike(t *testing.T) {
 		if got := escapeLike(tt.in); got != tt.want {
 			t.Errorf("escapeLike(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestAddCourse_Items(t *testing.T) {
+	tests := []struct {
+		name     string
+		items    []CourseItemRequest
+		wantCode string // "" = สำเร็จ
+	}{
+		{"ไม่ส่ง items → คอร์สไม่ใช้ของ", nil, ""},
+		{"ของชิ้นเดียวใช้หลายชิ้นต่อครั้งได้", []CourseItemRequest{{StockID: idCotton, UseQty: 2}}, ""},
+		{"ของกระปุกใช้ได้ถึง uses_per_unit", []CourseItemRequest{{StockID: idGel, UseQty: 20}}, ""},
+		{"ของกระปุกเกิน uses_per_unit → 400", []CourseItemRequest{{StockID: idGel, UseQty: 21}}, _package.CodeValidation},
+		{"use_qty 0 → 400", []CourseItemRequest{{StockID: idGel, UseQty: 0}}, _package.CodeValidation},
+		{"stock_id ไม่ใช่ UUID → 400", []CourseItemRequest{{StockID: "abc", UseQty: 1}}, _package.CodeValidation},
+		{"stock ไม่มีในระบบหรือถูกลบ → 400", []CourseItemRequest{{StockID: idMissing, UseQty: 1}}, _package.CodeValidation},
+		{"stock ปิดใช้งาน → 400", []CourseItemRequest{{StockID: idInactive, UseQty: 1}}, _package.CodeValidation},
+		{"stock_id ซ้ำ → 400", []CourseItemRequest{{StockID: idGel, UseQty: 1}, {StockID: idGel, UseQty: 2}}, _package.CodeValidation},
+		{"stock_id ซ้ำต่างตัวพิมพ์ → 400", []CourseItemRequest{{StockID: idGel, UseQty: 1}, {StockID: strings.ToUpper(idGel), UseQty: 2}}, _package.CodeValidation},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			req := AddCourseRequest{Name: "New", Price: decimal.NewFromInt(1), MaxSession: 1, Items: tt.items}
+
+			_, err := NewService(repo).AddCourse(context.Background(), req)
+			if code := errCode(err); code != tt.wantCode {
+				t.Fatalf("code = %q, want %q (err = %v)", code, tt.wantCode, err)
+			}
+			if tt.wantCode != "" && repo.created != nil {
+				t.Fatal("must not create when the request is rejected")
+			}
+		})
+	}
+}
+
+func TestAddCourse_ResponseHasItems(t *testing.T) {
+	got, err := NewService(newFakeRepo()).AddCourse(context.Background(), AddCourseRequest{
+		Name: "New", Price: decimal.NewFromInt(1), MaxSession: 1,
+		Items: []CourseItemRequest{{StockID: idCotton, UseQty: 2}, {StockID: idGel, UseQty: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []CourseItemResponse{
+		{Stock: StockRef{ID: idCotton, Name: "สำลี"}, UseQty: 2},
+		{Stock: StockRef{ID: idGel, Name: "เจล"}, UseQty: 1},
+	}
+	if len(got.Items) != len(want) || got.Items[0] != want[0] || got.Items[1] != want[1] {
+		t.Errorf("items = %+v, want %+v", got.Items, want)
+	}
+	if got.ID != idNew {
+		t.Errorf("id = %q, want %q", got.ID, idNew)
+	}
+}
+
+func TestAddCourse_NoItemsIsEmptyArray(t *testing.T) {
+	got, err := NewService(newFakeRepo()).AddCourse(context.Background(),
+		AddCourseRequest{Name: "New", Price: decimal.NewFromInt(1), MaxSession: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Items == nil || len(got.Items) != 0 {
+		t.Errorf("items = %#v, want empty non-nil slice", got.Items)
 	}
 }
