@@ -1,17 +1,23 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter } from 'react-router-dom'
 import DashboardLayout from '../layouts/DashboardLayout'
 import ComingSoonPage from '../pages/ComingSoonPage'
 import NotFoundPage from '../pages/NotFoundPage'
 import OverviewPage from '../features/overview/OverviewPage'
+import LoginPage from '../features/auth/LoginPage'
+import RequireAuth from '../features/auth/RequireAuth'
 
-// Routes mirror the Sidebar menu. Replace ComingSoonPage with the module's page once it's built.
-// `handle.title` feeds the Topbar breadcrumb.
 export const router = createBrowserRouter([
+  // Login is the entry page of the system
+  { path: '/', element: <LoginPage /> },
   {
-    path: '/',
-    element: <DashboardLayout />,
+    // Back-office routes mirror the Sidebar menu and require login. Replace ComingSoonPage
+    // with the module's page once it's built. `handle.title` feeds the Topbar breadcrumb.
+    element: (
+      <RequireAuth>
+        <DashboardLayout />
+      </RequireAuth>
+    ),
     children: [
-      { index: true, element: <Navigate to="/overview" replace /> },
       {
         path: 'overview',
         element: <OverviewPage />,

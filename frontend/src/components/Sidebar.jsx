@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LuChevronDown,
@@ -12,7 +13,7 @@ import {
   LuUsers,
   LuX,
 } from 'react-icons/lu'
-import { currentUser } from '../mocks/session'
+import { useAuth } from '../hooks/useAuth'
 
 // TODO: stocks badge should be the real count of low/out-of-stock items
 const menuGroups = [
@@ -36,7 +37,14 @@ const menuGroups = [
 ]
 
 function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onCloseMobile }) {
-  const isAdmin = currentUser.role === 'admin'
+  const { user, signOut } = useAuth()
+  const [signingOut, setSigningOut] = useState(false)
+  const isAdmin = user.role === 'admin'
+
+  const handleSignOut = async () => {
+    setSigningOut(true)
+    await signOut() // RequireAuth then redirects to the login page
+  }
 
   return (
     <>
@@ -114,19 +122,21 @@ function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onCloseMobile }) {
             }`}
           >
             <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gold text-sm font-bold text-sidebar">
-              {currentUser.initial}
+              {user.username.charAt(0).toUpperCase()}
             </span>
             <div className={`min-w-0 flex-1 ${collapsed ? 'lg:hidden' : ''}`}>
-              <p className="truncate text-sm font-semibold text-white">{currentUser.name}</p>
+              <p className="truncate text-sm font-semibold text-white">{user.username}</p>
               <p className="truncate text-xs text-sidebar-text/70">
-                {currentUser.roleLabel} · {currentUser.branchLabel}
+                {isAdmin ? 'ผู้ดูแลระบบ · ทุกสาขา' : 'บัญชีสาขา'}
               </p>
             </div>
             <button
               type="button"
+              onClick={handleSignOut}
+              disabled={signingOut}
               aria-label="ออกจากระบบ"
               title="ออกจากระบบ"
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg text-sidebar-text/70 transition hover:bg-white/10 hover:text-white"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg text-sidebar-text/70 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50"
             >
               <LuLogOut className="size-4" />
             </button>
