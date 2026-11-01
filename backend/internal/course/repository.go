@@ -15,7 +15,8 @@ type Repository interface {
 	CreateCourse(ctx context.Context, course models.Course, items []models.CourseItem) (models.Course, error)
 	FindStocksByIds(ctx context.Context, ids []string) ([]models.Stock, error)
 	FindCourseById(ctx context.Context, id string) (*models.Course, error)
-	UpdateCourse(ctx context.Context, course models.Course) (models.Course, error)
+	UpdateCourse(ctx context.Context, course models.Course, items *[]models.CourseItem) (models.Course, error)
+	FindCourseItems(ctx context.Context, courseId string) ([]models.CourseItem, error)
 	CheckCourseHasRelation(ctx context.Context, courseId string) (bool, error)
 	SoftDeleteCourse(ctx context.Context, courseId string) error
 	HardDeleteCourse(ctx context.Context, courseId string) error
@@ -118,13 +119,13 @@ func (r *repository) CreateCourse(ctx context.Context, course models.Course, ite
 	return created, nil
 }
 
-// FindStocksByIds ค้นหาสินค้าตาม id (ไม่รวมที่ถูกลบด้วย soft delete) ตัวที่ไม่เจอจะไม่อยู่ในผลลัพธ์
+// FindStocksByIds ค้นหาสินค้าตาม id (รวมที่ถูก soft delete ให้ service ตัดสินจาก deleted_at) ตัวที่ไม่เจอจะไม่อยู่ในผลลัพธ์
 func (r *repository) FindStocksByIds(ctx context.Context, ids []string) ([]models.Stock, error) {
 	var stocks []models.Stock
 	if len(ids) == 0 {
 		return stocks, nil
 	}
-	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&stocks).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Where("id IN ?", ids).Find(&stocks).Error; err != nil {
 		return nil, err
 	}
 	return stocks, nil
@@ -143,12 +144,48 @@ func (r *repository) FindCourseById(ctx context.Context, id string) (*models.Cou
 	return &course, nil
 }
 
-// UpdateCourse บันทึกคอร์สทั้งแถว
-func (r *repository) UpdateCourse(ctx context.Context, course models.Course) (models.Course, error) {
-	if err := r.db.WithContext(ctx).Save(&course).Error; err != nil {
+// UpdateCourse บันทึกคอร์สทั้งแถว ในทรานแซกชันเดียวกับของที่ใช้
+// items = nil ไม่แตะ course_items · ไม่ nil = แทนทั้งชุด (ลบของเดิมแล้วใส่ใหม่ course_id ใส่ให้เอง)
+// คืนคอร์สที่อ่านกลับจาก DB พร้อม items แบบเดียวกับ GetAllCourse
+func (r *repository) UpdateCourse(ctx context.Context, course models.Course, items *[]models.CourseItem) (models.Course, error) {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Omit กัน GORM บันทึก association ใน course.Items เอง
+		if err := tx.Omit("Items").Save(&course).Error; err != nil {
+			return err
+		}
+		if items == nil {
+			return nil
+		}
+		// course_items ไม่มีตารางไหนอ้างถึง ลบแล้วใส่ใหม่ได้เลย
+		if err := tx.Where("course_id = ?", course.ID).Delete(&models.CourseItem{}).Error; err != nil {
+			return err
+		}
+		if len(*items) == 0 {
+			return nil
+		}
+		for i := range *items {
+			(*items)[i].CourseID = course.ID
+		}
+		return tx.Omit("Course", "Stock").Create(items).Error
+	})
+	if err != nil {
 		return models.Course{}, err
 	}
-	return course, nil
+
+	var updated models.Course
+	if err := r.db.WithContext(ctx).Scopes(preloadItems).First(&updated, "id = ?", course.ID).Error; err != nil {
+		return models.Course{}, err
+	}
+	return updated, nil
+}
+
+// FindCourseItems คืนของที่คอร์สนี้ใช้อยู่ตอนนี้
+func (r *repository) FindCourseItems(ctx context.Context, courseId string) ([]models.CourseItem, error) {
+	var items []models.CourseItem
+	if err := r.db.WithContext(ctx).Where("course_id = ?", courseId).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 // CheckCourseHasRelation เช็คว่า Course ถูกอ้างอิงจากตารางอื่นหรือไม่

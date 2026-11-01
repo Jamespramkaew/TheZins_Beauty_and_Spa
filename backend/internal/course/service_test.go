@@ -19,8 +19,11 @@ import (
 type fakeRepo struct {
 	courses []models.Course
 	saved   *models.Course
-	stocks  []models.Stock // สินค้าที่ยังไม่ถูกลบ
+	stocks  []models.Stock // สินค้าทั้งหมด (รวมที่ถูก soft delete)
 	created *models.Course // คอร์สที่ส่งเข้า CreateCourse (รวม items)
+
+	items      map[string][]models.CourseItem // ของที่แต่ละคอร์สใช้อยู่ (key = course id)
+	savedItems *[]models.CourseItem           // items ที่ส่งเข้า UpdateCourse (nil = ไม่แตะ)
 
 	related     map[string]bool // course id ที่มีตารางอื่นอ้างถึง
 	hardErr     error           // error ที่ HardDeleteCourse จะคืน (จำลอง FK)
@@ -104,9 +107,17 @@ func (r *fakeRepo) FindCourseById(ctx context.Context, id string) (*models.Cours
 	return nil, nil
 }
 
-func (r *fakeRepo) UpdateCourse(ctx context.Context, course models.Course) (models.Course, error) {
+func (r *fakeRepo) UpdateCourse(ctx context.Context, course models.Course, items *[]models.CourseItem) (models.Course, error) {
 	r.saved = &course
+	r.savedItems = items
+	if items != nil {
+		course.Items = *items
+	}
 	return course, nil
+}
+
+func (r *fakeRepo) FindCourseItems(ctx context.Context, courseId string) ([]models.CourseItem, error) {
+	return r.items[courseId], nil
 }
 
 const (
@@ -119,6 +130,7 @@ const (
 	idGel      = "aaaaaaaa-0000-0000-0000-000000000001" // uses_per_unit 20
 	idCotton   = "aaaaaaaa-0000-0000-0000-000000000002" // uses_per_unit 1
 	idInactive = "aaaaaaaa-0000-0000-0000-000000000003"
+	idDeleted  = "aaaaaaaa-0000-0000-0000-000000000004"
 )
 
 func newFakeRepo() *fakeRepo {
@@ -132,6 +144,8 @@ func newFakeRepo() *fakeRepo {
 		{ID: idGel, Name: "เจล", UsesPerUnit: 20, IsActive: true},
 		{ID: idCotton, Name: "สำลี", UsesPerUnit: 1, IsActive: true},
 		{ID: idInactive, Name: "เลิกขาย", UsesPerUnit: 1, IsActive: false},
+		{ID: idDeleted, Name: "ถูกลบ", UsesPerUnit: 1, IsActive: true,
+			DeletedAt: gorm.DeletedAt{Time: time.Now(), Valid: true}},
 	}}
 }
 
@@ -317,7 +331,8 @@ func TestAddCourse_Items(t *testing.T) {
 		{"ของกระปุกเกิน uses_per_unit → 400", []CourseItemRequest{{StockID: idGel, UseQty: 21}}, _package.CodeValidation},
 		{"use_qty 0 → 400", []CourseItemRequest{{StockID: idGel, UseQty: 0}}, _package.CodeValidation},
 		{"stock_id ไม่ใช่ UUID → 400", []CourseItemRequest{{StockID: "abc", UseQty: 1}}, _package.CodeValidation},
-		{"stock ไม่มีในระบบหรือถูกลบ → 400", []CourseItemRequest{{StockID: idMissing, UseQty: 1}}, _package.CodeValidation},
+		{"stock ไม่มีในระบบ → 400", []CourseItemRequest{{StockID: idMissing, UseQty: 1}}, _package.CodeValidation},
+		{"stock ถูก soft delete → 400", []CourseItemRequest{{StockID: idDeleted, UseQty: 1}}, _package.CodeValidation},
 		{"stock ปิดใช้งาน → 400", []CourseItemRequest{{StockID: idInactive, UseQty: 1}}, _package.CodeValidation},
 		{"stock_id ซ้ำ → 400", []CourseItemRequest{{StockID: idGel, UseQty: 1}, {StockID: idGel, UseQty: 2}}, _package.CodeValidation},
 		{"stock_id ซ้ำต่างตัวพิมพ์ → 400", []CourseItemRequest{{StockID: idGel, UseQty: 1}, {StockID: strings.ToUpper(idGel), UseQty: 2}}, _package.CodeValidation},
@@ -367,4 +382,72 @@ func TestAddCourse_NoItemsIsEmptyArray(t *testing.T) {
 	if got.Items == nil || len(got.Items) != 0 {
 		t.Errorf("items = %#v, want empty non-nil slice", got.Items)
 	}
+}
+
+func TestUpdateCourse_Items(t *testing.T) {
+	// Facial ผูกกับสินค้าที่ตอนนี้ถูกปิดใช้งาน และสินค้าที่ถูกลบไปแล้ว
+	linked := []models.CourseItem{{CourseID: idFacial, StockID: idInactive, UseQty: 1}, {CourseID: idFacial, StockID: idDeleted, UseQty: 1}}
+	tests := []struct {
+		name      string
+		items     *[]CourseItemRequest
+		wantCode  string // "" = สำเร็จ
+		wantSaved *[]models.CourseItem
+	}{
+		{"ไม่ส่ง items → ไม่แตะของเดิม", nil, "", nil},
+		{"ส่ง [] → ล้างทั้งหมด", &[]CourseItemRequest{}, "", &[]models.CourseItem{}},
+		{"แทนทั้งชุด", &[]CourseItemRequest{{StockID: idGel, UseQty: 3}}, "",
+			&[]models.CourseItem{{StockID: idGel, UseQty: 3}}},
+		{"ของเดิมที่สินค้าถูกปิด/ลบไปแล้ว คงไว้ได้", &[]CourseItemRequest{{StockID: idInactive, UseQty: 2}, {StockID: idDeleted, UseQty: 1}}, "",
+			&[]models.CourseItem{{StockID: idInactive, UseQty: 2}, {StockID: idDeleted, UseQty: 1}}},
+		{"ของเกิน uses_per_unit → 400", &[]CourseItemRequest{{StockID: idGel, UseQty: 21}}, _package.CodeValidation, nil},
+		{"stock_id ซ้ำ → 400", &[]CourseItemRequest{{StockID: idGel, UseQty: 1}, {StockID: idGel, UseQty: 1}}, _package.CodeValidation, nil},
+		{"stock ไม่มีในระบบ → 400", &[]CourseItemRequest{{StockID: idMissing, UseQty: 1}}, _package.CodeValidation, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			repo.items = map[string][]models.CourseItem{idFacial: linked}
+
+			_, err := NewService(repo).UpdateCourseById(context.Background(), idFacial, UpdateCourseRequest{Items: tt.items})
+			if code := errCode(err); code != tt.wantCode {
+				t.Fatalf("code = %q, want %q (err = %v)", code, tt.wantCode, err)
+			}
+			if tt.wantCode != "" {
+				if repo.saved != nil {
+					t.Fatal("must not save when the request is rejected")
+				}
+				return
+			}
+			if (repo.savedItems == nil) != (tt.wantSaved == nil) {
+				t.Fatalf("saved items = %v, want %v", repo.savedItems, tt.wantSaved)
+			}
+			if tt.wantSaved != nil && !equalItems(*repo.savedItems, *tt.wantSaved) {
+				t.Errorf("saved items = %+v, want %+v", *repo.savedItems, *tt.wantSaved)
+			}
+		})
+	}
+}
+
+// สินค้าที่ถูกปิด/ลบ เพิ่มเข้าคอร์สที่ยังไม่เคยผูกไม่ได้
+func TestUpdateCourse_Items_NewInactiveOrDeletedStockRejected(t *testing.T) {
+	for _, id := range []string{idInactive, idDeleted} {
+		repo := newFakeRepo()
+		_, err := NewService(repo).UpdateCourseById(context.Background(), idMassage,
+			UpdateCourseRequest{Items: &[]CourseItemRequest{{StockID: id, UseQty: 1}}})
+		if code := errCode(err); code != _package.CodeValidation {
+			t.Errorf("stock %s: code = %q, want %q (err = %v)", id, code, _package.CodeValidation, err)
+		}
+	}
+}
+
+func equalItems(got, want []models.CourseItem) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i].StockID != want[i].StockID || got[i].UseQty != want[i].UseQty {
+			return false
+		}
+	}
+	return true
 }

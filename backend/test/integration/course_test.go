@@ -196,7 +196,7 @@ func TestCourseRepo_UpdateToActiveNameIsRejectedByDB(t *testing.T) {
 
 	b.Name = a.Name
 	err := expectDBError(t, tx, func() error {
-		_, err := repo.UpdateCourse(ctx, b)
+		_, err := repo.UpdateCourse(ctx, b, nil)
 		return err
 	})
 	assert.ErrorIs(t, err, gorm.ErrDuplicatedKey)
@@ -346,7 +346,7 @@ func TestCourseRepo_UpdateCourse(t *testing.T) {
 	c.Price = decimal.NewFromInt(777)
 	c.MaxSession = 9
 	c.IsActive = false
-	_, err := repo.UpdateCourse(ctx, c)
+	_, err := repo.UpdateCourse(ctx, c, nil)
 	require.NoError(t, err)
 
 	got, err := repo.FindCourseById(ctx, c.ID)
@@ -358,7 +358,7 @@ func TestCourseRepo_UpdateCourse(t *testing.T) {
 
 	// ล้าง valid_day เป็น NULL (ไม่หมดอายุ) ต้องบันทึกได้จริง
 	got.ValidDay = nil
-	_, err = repo.UpdateCourse(ctx, *got)
+	_, err = repo.UpdateCourse(ctx, *got, nil)
 	require.NoError(t, err)
 	again, err := repo.FindCourseById(ctx, c.ID)
 	require.NoError(t, err)
@@ -591,4 +591,87 @@ func TestCourseRepo_CreateCourse_SavesItems(t *testing.T) {
 	require.NotNil(t, created.Items[0].Stock, "ต้องอ่านกลับพร้อม stock")
 	assert.Equal(t, stock.Name, created.Items[0].Stock.Name)
 	assert.EqualValues(t, 1, countCourseItems(t, tx, created.ID))
+}
+
+// ---------- PATCH พร้อม items ----------
+
+func TestCourseService_Update_Items(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	c := mkCourse(t, tx, uniqueName("itest-upd-items"))
+	keep := mkStock(t, tx, uniqueName("itest-keep"))
+	drop := mkStock(t, tx, uniqueName("itest-drop"))
+	add := mkStock(t, tx, uniqueName("itest-add"))
+	require.NoError(t, tx.Create(&[]models.CourseItem{
+		{CourseID: c.ID, StockID: keep.ID, UseQty: 1},
+		{CourseID: c.ID, StockID: drop.ID, UseQty: 1},
+	}).Error)
+
+	// ไม่ส่ง items = ไม่แตะของเดิม
+	name := c.Name + "-renamed"
+	got, err := svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{Name: &name})
+	require.NoError(t, err)
+	assert.Len(t, got.Items, 2)
+	assert.EqualValues(t, 2, countCourseItems(t, tx, c.ID))
+
+	// แทนทั้งชุด: keep เปลี่ยน use_qty, drop หายไป, add เพิ่มเข้ามา
+	got, err = svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{Items: &[]course.CourseItemRequest{
+		{StockID: keep.ID, UseQty: 3}, {StockID: add.ID, UseQty: 2},
+	}})
+	require.NoError(t, err)
+	qty := map[string]int{}
+	for _, it := range got.Items {
+		qty[it.Stock.ID] = it.UseQty
+	}
+	assert.Equal(t, map[string]int{keep.ID: 3, add.ID: 2}, qty)
+	assert.EqualValues(t, 2, countCourseItems(t, tx, c.ID))
+
+	// [] = ล้างทั้งหมด
+	got, err = svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{Items: &[]course.CourseItemRequest{}})
+	require.NoError(t, err)
+	assert.Empty(t, got.Items)
+	assert.EqualValues(t, 0, countCourseItems(t, tx, c.ID))
+}
+
+// ของที่ผูกอยู่แล้วแต่สินค้าถูก soft delete ไปแล้ว ต้องคงไว้ได้ แต่เพิ่มเข้าคอร์สอื่นไม่ได้
+func TestCourseService_Update_KeepsLinkedSoftDeletedStock(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	c := mkCourse(t, tx, uniqueName("itest-upd-keep"))
+	other := mkCourse(t, tx, uniqueName("itest-upd-other"))
+	gone := mkStock(t, tx, uniqueName("itest-gone"))
+	require.NoError(t, tx.Create(&models.CourseItem{CourseID: c.ID, StockID: gone.ID, UseQty: 1}).Error)
+	require.NoError(t, tx.Delete(&models.Stock{}, "id = ?", gone.ID).Error)
+
+	got, err := svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{
+		Items: &[]course.CourseItemRequest{{StockID: gone.ID, UseQty: 2}},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, gone.Name, got.Items[0].Stock.Name, "ยังเห็นชื่อสินค้าที่ถูกลบ")
+	assert.Equal(t, 2, got.Items[0].UseQty)
+
+	_, err = svc.UpdateCourseById(ctx, other.ID, course.UpdateCourseRequest{
+		Items: &[]course.CourseItemRequest{{StockID: gone.ID, UseQty: 1}},
+	})
+	assert.Equal(t, _package.CodeValidation, courseErrCode(err))
+	assert.EqualValues(t, 0, countCourseItems(t, tx, other.ID))
+}
+
+// items ไม่ผ่าน ต้องไม่แก้ field อื่นของคอร์สด้วย
+func TestCourseService_Update_RejectedItemsLeaveCourseUntouched(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	c := mkCourse(t, tx, uniqueName("itest-upd-reject"))
+	name := c.Name + "-renamed"
+
+	_, err := svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{
+		Name:  &name,
+		Items: &[]course.CourseItemRequest{{StockID: "99999999-9999-9999-9999-999999999999", UseQty: 1}},
+	})
+	assert.Equal(t, _package.CodeValidation, courseErrCode(err))
+
+	var after models.Course
+	require.NoError(t, tx.First(&after, "id = ?", c.ID).Error)
+	assert.Equal(t, c.Name, after.Name)
 }

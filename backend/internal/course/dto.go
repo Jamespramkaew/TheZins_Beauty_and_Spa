@@ -39,6 +39,8 @@ type UpdateCourseRequest struct {
 	ServiceComm *decimal.Decimal `json:"service_comm"`
 	Category    *string          `json:"category"`
 	IsActive    *bool            `json:"is_active"`
+	// ของที่ใช้ต่อการทำ 1 ครั้ง ส่งมา = แทนทั้งชุด ([] = ล้างทั้งหมด) · ไม่ส่ง / null = ไม่แตะของเดิม
+	Items *[]CourseItemRequest `json:"items"`
 }
 
 // GetAllCourseQuery = query string ของ GET /api/courses (รับเป็นข้อความ แปลงใน service)

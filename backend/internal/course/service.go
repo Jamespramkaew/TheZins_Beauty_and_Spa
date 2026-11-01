@@ -17,7 +17,7 @@ import (
 type Service interface {
 	GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]CourseResponse, _package.PageMeta, error)
 	AddCourse(ctx context.Context, data AddCourseRequest) (CourseResponse, error)
-	UpdateCourseById(ctx context.Context, courseId string, data UpdateCourseRequest) (models.Course, error)
+	UpdateCourseById(ctx context.Context, courseId string, data UpdateCourseRequest) (CourseResponse, error)
 	DeleteCourseById(ctx context.Context, courseId string) error
 }
 
@@ -86,7 +86,7 @@ func (s *service) AddCourse(ctx context.Context, data AddCourseRequest) (CourseR
 	}
 
 	// Validate ของที่ใช้ (เช็คกับสินค้าจริงใน DB)
-	items, err := s.buildCourseItems(ctx, data.Items)
+	items, err := s.buildCourseItems(ctx, data.Items, nil)
 	if err != nil {
 		return emptyCourse, err
 	}
@@ -134,7 +134,8 @@ func (s *service) AddCourse(ctx context.Context, data AddCourseRequest) (CourseR
 // buildCourseItems ตรวจ items ที่ส่งมาแล้วแปลงเป็น CourseItem (ยังไม่มี course_id)
 // stock ต้องมีอยู่จริง ไม่ถูกลบ และยังเปิดใช้งาน · ห้าม stock_id ซ้ำ · use_qty ตั้งแต่ 1
 // ของที่เปิดเป็นกระปุก (uses_per_unit > 1) ใช้ต่อการทำ 1 ครั้งได้ไม่เกิน 1 กระปุก
-func (s *service) buildCourseItems(ctx context.Context, reqs []CourseItemRequest) ([]models.CourseItem, error) {
+// linked = stock_id (ตัวเล็ก) ที่ผูกกับคอร์สอยู่แล้ว ข้ามการเช็คถูกลบ/ปิดใช้งาน แก้คอร์สได้โดยไม่ต้องเอาของเดิมออก
+func (s *service) buildCourseItems(ctx context.Context, reqs []CourseItemRequest, linked map[string]bool) ([]models.CourseItem, error) {
 	if len(reqs) == 0 {
 		return nil, nil
 	}
@@ -169,10 +170,10 @@ func (s *service) buildCourseItems(ctx context.Context, reqs []CourseItemRequest
 	items := make([]models.CourseItem, 0, len(reqs))
 	for i, it := range reqs {
 		st, ok := stockById[ids[i]]
-		if !ok {
+		if !ok || (st.DeletedAt.Valid && !linked[ids[i]]) {
 			return nil, invalid("items[%d].stock_id '%s' not found", i, ids[i])
 		}
-		if !st.IsActive {
+		if !st.IsActive && !linked[ids[i]] {
 			return nil, invalid("items[%d].stock_id '%s' is inactive", i, ids[i])
 		}
 		if st.UsesPerUnit > 1 && it.UseQty > st.UsesPerUnit {
@@ -184,8 +185,8 @@ func (s *service) buildCourseItems(ctx context.Context, reqs []CourseItemRequest
 }
 
 // UpdateCourseById แก้เฉพาะ field ที่ส่งมา คอร์สที่ถูก soft delete ไปแล้วตอบ 404
-func (s *service) UpdateCourseById(ctx context.Context, courseId string, data UpdateCourseRequest) (models.Course, error) {
-	var emptyCourse models.Course
+func (s *service) UpdateCourseById(ctx context.Context, courseId string, data UpdateCourseRequest) (CourseResponse, error) {
+	var emptyCourse CourseResponse
 
 	// id ที่ไม่ใช่ UUID ไม่มีในตารางแน่นอน และถ้าส่งไปถึง PostgreSQL จะ error กลายเป็น 500
 	if !uuidPattern.MatchString(courseId) {
@@ -271,15 +272,41 @@ func (s *service) UpdateCourseById(ctx context.Context, courseId string, data Up
 		existingCourse.IsActive = *data.IsActive
 	}
 
-	updatedCourse, err := s.repository.UpdateCourse(ctx, *existingCourse)
+	// Items (แทนทั้งชุด) ของที่ผูกกับคอร์สนี้อยู่แล้วคงไว้ได้แม้สินค้าจะถูกปิดใช้งาน/ลบไปแล้ว
+	var items *[]models.CourseItem
+	if data.Items != nil {
+		current, err := s.repository.FindCourseItems(ctx, courseId)
+		if err != nil {
+			return emptyCourse, err
+		}
+		linked := make(map[string]bool, len(current))
+		for _, it := range current {
+			linked[strings.ToLower(it.StockID)] = true
+		}
+
+		built, err := s.buildCourseItems(ctx, *data.Items, linked)
+		if err != nil {
+			return emptyCourse, err
+		}
+		if built == nil {
+			built = []models.CourseItem{}
+		}
+		items = &built
+	}
+
+	updatedCourse, err := s.repository.UpdateCourse(ctx, *existingCourse, items)
 	if err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return emptyCourse, duplicateName(existingCourse.Name)
 		}
+		// สินค้าถูกลบจริง (hard delete) ระหว่างเช็คกับบันทึก
+		if errors.Is(err, gorm.ErrForeignKeyViolated) {
+			return emptyCourse, invalid("some stock in items no longer exists")
+		}
 		return emptyCourse, err
 	}
 
-	return updatedCourse, nil
+	return toCourseResponse(updatedCourse), nil
 }
 
 // DeleteCourseById ลบคอร์ส:

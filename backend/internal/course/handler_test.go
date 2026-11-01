@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"backend/internal/currentuser"
-	"backend/internal/models"
 	_package "backend/package"
 
 	"github.com/gofiber/fiber/v3"
@@ -26,7 +25,7 @@ import (
 type mockService struct {
 	getAll       func(ctx context.Context, q GetAllCourseQuery) ([]CourseResponse, _package.PageMeta, error)
 	addCourse    func(ctx context.Context, data AddCourseRequest) (CourseResponse, error)
-	updateCourse func(ctx context.Context, id string, data UpdateCourseRequest) (models.Course, error)
+	updateCourse func(ctx context.Context, id string, data UpdateCourseRequest) (CourseResponse, error)
 	deleteCourse func(ctx context.Context, id string) error
 
 	calls      int // นับทุกครั้งที่เรียก service (ใช้เช็คว่าโดนกันก่อนถึง service)
@@ -54,13 +53,13 @@ func (m *mockService) AddCourse(ctx context.Context, data AddCourseRequest) (Cou
 	return CourseResponse{ID: idFacial, Name: data.Name, Items: []CourseItemResponse{}}, nil
 }
 
-func (m *mockService) UpdateCourseById(ctx context.Context, id string, data UpdateCourseRequest) (models.Course, error) {
+func (m *mockService) UpdateCourseById(ctx context.Context, id string, data UpdateCourseRequest) (CourseResponse, error) {
 	m.calls++
 	m.lastID, m.lastUpdate = id, data
 	if m.updateCourse != nil {
 		return m.updateCourse(ctx, id, data)
 	}
-	return models.Course{ID: id}, nil
+	return CourseResponse{ID: id, Items: []CourseItemResponse{}}, nil
 }
 
 func (m *mockService) DeleteCourseById(ctx context.Context, id string) error {
@@ -407,6 +406,31 @@ func TestUpdateCourse_Handler_ValidDayNullReachesService(t *testing.T) {
 	assert.Equal(t, "null", string(svc.lastUpdate.ValidDay))
 }
 
+// ไม่ส่ง / null = ไม่แตะ items เดิม ต้องแยกจาก [] (ล้างทั้งหมด)
+func TestUpdateCourse_Handler_Items(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want *[]CourseItemRequest
+	}{
+		{"ไม่ส่ง items", `{"name":"x"}`, nil},
+		{"ส่ง null", `{"items":null}`, nil},
+		{"ส่ง []", `{"items":[]}`, &[]CourseItemRequest{}},
+		{"ส่ง list", `{"items":[{"stock_id":"` + idFacial + `","use_qty":2}]}`, &[]CourseItemRequest{{StockID: idFacial, UseQty: 2}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockService{}
+			app := newTestApp(svc, "admin")
+
+			resp, _ := doRequest(t, app, http.MethodPatch, "/courses/"+idFacial, tt.body)
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, tt.want, svc.lastUpdate.Items)
+		})
+	}
+}
+
 func TestUpdateCourse_Handler_BadBody_Returns400(t *testing.T) {
 	tests := []struct{ name, body, detail string }{
 		{"body ว่าง", "", ""},
@@ -445,8 +469,8 @@ func TestUpdateCourse_Handler_ServiceErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &mockService{updateCourse: func(ctx context.Context, id string, data UpdateCourseRequest) (models.Course, error) {
-				return models.Course{}, tt.err
+			svc := &mockService{updateCourse: func(ctx context.Context, id string, data UpdateCourseRequest) (CourseResponse, error) {
+				return CourseResponse{}, tt.err
 			}}
 			app := newTestApp(svc, "admin")
 
