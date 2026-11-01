@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom'
 import { LuArrowRight } from 'react-icons/lu'
 import Card from '../../../components/Card'
-import { currentUser } from '../../../mocks/session'
+import { useAuth } from '../../../hooks/useAuth'
 import { formatBaht, formatPercent } from '../../../utils/format'
 
 function BranchSalesCard({ branches }) {
+  const { user } = useAuth()
   const total = branches.reduce((sum, branch) => sum + branch.sales, 0)
   const max = Math.max(...branches.map((branch) => branch.sales))
 
@@ -44,7 +45,7 @@ function BranchSalesCard({ branches }) {
         ))}
       </ul>
 
-      {currentUser.role === 'admin' && (
+      {user.role === 'admin' && (
         <Link
           to="/branch-accounts"
           className="mt-6 flex items-center justify-between rounded-control bg-surface-2 px-4 py-3 text-sm text-ink transition hover:bg-line"
