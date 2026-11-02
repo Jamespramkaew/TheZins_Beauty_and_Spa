@@ -25,7 +25,7 @@ function CoursesPage() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0])
-  const [view, setView] = useState('card')
+  const [view, setView] = useState('table')
   const [form, setForm] = useState(null) // { course } — course null = create
   const [deleting, setDeleting] = useState(null)
   const [togglingIds, setTogglingIds] = useState(() => new Set())
