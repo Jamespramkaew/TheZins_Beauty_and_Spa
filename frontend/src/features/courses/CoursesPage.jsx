@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { FiEye, FiGrid, FiList, FiPlus, FiSearch } from 'react-icons/fi'
 import { courseApi } from '../../api/courseApi'
+import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
-import { currentUser } from '../../mocks/session'
 import { formatNumber } from '../../utils/format'
 import CourseCard from './components/CourseCard'
 import CourseFormModal from './components/CourseFormModal'
@@ -18,7 +18,8 @@ const VIEWS = [
 ]
 
 function CoursesPage() {
-  const canManage = currentUser.role === 'admin'
+  const { user } = useAuth()
+  const canManage = user.role === 'admin'
   const toast = useToast()
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { currentUser } from '../../mocks/session'
+import { useAuth } from '../../hooks/useAuth'
 import BranchFilter from './components/BranchFilter'
 import BranchSalesCard from './components/BranchSalesCard'
 import KpiCards from './components/KpiCards'
@@ -32,6 +32,7 @@ const summary = {
 }
 
 function OverviewPage() {
+  const { user } = useAuth()
   const [period, setPeriod] = useState('month')
   const [selectedBranchIds, setSelectedBranchIds] = useState(() => branches.map((branch) => branch.id))
 
@@ -45,7 +46,7 @@ function OverviewPage() {
         <div>
           <h1 className="text-[28px] font-bold tracking-tight text-ink">ภาพรวม</h1>
           <p className="mt-1 text-sm text-muted">
-            สวัสดีค่ะ {currentUser.firstName} — สรุปยอดของ
+            สวัสดีค่ะ {user.username} — สรุปยอดของ
             {allBranchesSelected ? `ทั้ง ${branches.length} สาขา` : `สาขา${selectedBranches.map((b) => b.name).join(', ')}`}
             ประจำเดือนกันยายน
           </p>
