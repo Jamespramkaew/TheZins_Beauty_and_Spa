@@ -188,12 +188,12 @@ func (r *repository) FindCourseItems(ctx context.Context, courseId string) ([]mo
 	return items, nil
 }
 
-// CheckCourseHasRelation เช็คว่า Course ถูกอ้างอิงจากตารางอื่นหรือไม่
-// ต้องครบทุกตารางที่มี FK course_id ชี้มาที่ courses ไม่งั้น hard delete จะติด FK
-// Relations: CourseItem (ของที่คอร์สใช้), OrderItem (เคยขายแล้ว), ServiceUsage (VIP เคยใช้บริการนี้)
+// CheckCourseHasRelation เช็คว่า Course มีประวัติที่อ้างถึงหรือไม่ (มี = ต้อง soft delete)
+// ต้องครบทุกตารางประวัติที่มี FK course_id ชี้มาที่ courses ไม่งั้น hard delete จะติด FK
+// Relations: OrderItem (เคยขายแล้ว), ServiceUsage (VIP เคยใช้บริการนี้)
+// ไม่นับ CourseItem เพราะเป็นส่วนหนึ่งของคอร์ส ไม่ใช่ประวัติ (HardDeleteCourse ลบไปพร้อมกัน)
 func (r *repository) CheckCourseHasRelation(ctx context.Context, courseId string) (bool, error) {
 	relatedModels := []any{
-		&models.CourseItem{},
 		&models.OrderItem{},
 		&models.ServiceUsage{},
 	}
@@ -216,7 +216,13 @@ func (r *repository) SoftDeleteCourse(ctx context.Context, courseId string) erro
 	return r.db.WithContext(ctx).Delete(&models.Course{}, "id = ?", courseId).Error
 }
 
-// HardDeleteCourse ลบ Course ออกจากฐานข้อมูลจริงๆ
+// HardDeleteCourse ลบ Course ออกจากฐานข้อมูลจริงๆ พร้อมของที่คอร์สใช้ (course_items) ในทรานแซกชันเดียว
+// ถ้าติด FK จากตารางประวัติ จะ rollback ทั้งหมด (course_items กลับมาครบ)
 func (r *repository) HardDeleteCourse(ctx context.Context, courseId string) error {
-	return r.db.WithContext(ctx).Unscoped().Delete(&models.Course{}, "id = ?", courseId).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("course_id = ?", courseId).Delete(&models.CourseItem{}).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Delete(&models.Course{}, "id = ?", courseId).Error
+	})
 }

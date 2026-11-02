@@ -310,8 +310,8 @@ func (s *service) UpdateCourseById(ctx context.Context, courseId string, data Up
 }
 
 // DeleteCourseById ลบคอร์ส:
-// - ถ้าไม่มี Relation → Hard Delete (ลบจริง)
-// - ถ้ามี Relation → Soft Delete (เซ็ต DeletedAt) ประวัติบิล / การใช้บริการที่อ้างถึงคอร์สนี้ยังอยู่ครบ
+// - ถ้าไม่มีประวัติ (ยังไม่เคยขาย / ใช้บริการ) → Hard Delete (ลบจริง พร้อมของที่คอร์สใช้)
+// - ถ้ามีประวัติ → Soft Delete (เซ็ต DeletedAt) ประวัติบิล / การใช้บริการ และของที่คอร์สใช้ยังอยู่ครบ
 func (s *service) DeleteCourseById(ctx context.Context, courseId string) error {
 	if !uuidPattern.MatchString(courseId) {
 		return notFound(courseId)
