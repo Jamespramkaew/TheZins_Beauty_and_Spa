@@ -5,7 +5,7 @@ import CategoryBadge from './CategoryBadge'
 import CourseStatus from './CourseStatus'
 import ItemChips from './ItemChips'
 
-function CourseTable({ courses, canManage, togglingIds, onEdit, onDelete, onToggleActive }) {
+function CourseTable({ courses, canManage, togglingIds, onView, onEdit, onDelete, onToggleActive }) {
   return (
     <div className="overflow-x-auto rounded-card border border-line">
       <table className="w-full min-w-[1080px] text-sm">
@@ -26,9 +26,16 @@ function CourseTable({ courses, canManage, togglingIds, onEdit, onDelete, onTogg
           {courses.map((course) => (
             <tr key={course.id} className={course.is_active ? 'bg-white' : 'bg-surface text-muted'}>
               <td className="max-w-64 px-4 py-3.5">
-                <p className={`font-semibold [overflow-wrap:anywhere] ${course.is_active ? 'text-ink' : 'text-muted'}`}>
+                <button
+                  type="button"
+                  onClick={() => onView(course)}
+                  title="ดูรายละเอียด"
+                  className={`rounded-sm text-left font-semibold text-chart [overflow-wrap:anywhere] underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-chart/20 focus-visible:outline-none ${
+                    course.is_active ? '' : 'opacity-70'
+                  }`}
+                >
                   {course.name}
-                </p>
+                </button>
                 <div className="mt-1.5">
                   <CategoryBadge category={course.category} />
                 </div>
@@ -43,7 +50,7 @@ function CourseTable({ courses, canManage, togglingIds, onEdit, onDelete, onTogg
               </td>
               <td className="px-3 py-3.5 text-right whitespace-nowrap">{formatBaht(toNumber(course.service_comm))}</td>
               <td className="w-72 px-3 py-3.5">
-                <ItemChips items={course.items} limit={2} />
+                <ItemChips items={course.items} limit={2} onShowMore={() => onView(course)} />
               </td>
               <td className="px-3 py-3.5">
                 <CourseStatus
