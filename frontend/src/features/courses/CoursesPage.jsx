@@ -5,6 +5,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
 import { formatNumber } from '../../utils/format'
 import CourseCard from './components/CourseCard'
+import CourseDetailModal from './components/CourseDetailModal'
 import CourseFormModal from './components/CourseFormModal'
 import CourseTable from './components/CourseTable'
 import DeleteCourseDialog from './components/DeleteCourseDialog'
@@ -26,6 +27,7 @@ function CoursesPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0])
   const [view, setView] = useState('table')
+  const [viewing, setViewing] = useState(null)
   const [form, setForm] = useState(null) // { course } — course null = create
   const [deleting, setDeleting] = useState(null)
   const [togglingIds, setTogglingIds] = useState(() => new Set())
@@ -163,9 +165,21 @@ function CoursesPage() {
             ))}
           </div>
         ) : (
-          <CourseTable courses={courses} togglingIds={togglingIds} {...listProps} />
+          <CourseTable courses={courses} togglingIds={togglingIds} onView={setViewing} {...listProps} />
         )}
       </section>
+
+      {viewing && (
+        <CourseDetailModal
+          course={viewing}
+          canManage={canManage}
+          onClose={() => setViewing(null)}
+          onEdit={() => {
+            setViewing(null)
+            setForm({ course: viewing })
+          }}
+        />
+      )}
 
       {meta && meta.total > 0 && !error && (
         <Pagination
