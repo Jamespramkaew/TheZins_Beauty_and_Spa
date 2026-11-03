@@ -102,7 +102,7 @@ func TestCourseRepo_CreateAndFind(t *testing.T) {
 	created, err := repo.CreateCourse(ctx, models.Course{
 		Name: name, Price: decimal.NewFromInt(3500), MaxSession: 10, ValidDay: &validDay,
 		ServiceComm: decimal.NewFromInt(150), Category: "facial", IsActive: true,
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, created.ID, "DB ต้องเจน uuid ให้")
 
@@ -177,14 +177,14 @@ func TestCourseRepo_NameUniqueOnlyAmongActive(t *testing.T) {
 	first := mkCourse(t, tx, name)
 
 	err := expectDBError(t, tx, func() error {
-		_, err := repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1})
+		_, err := repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1}, nil)
 		return err
 	})
 	assert.ErrorIs(t, err, gorm.ErrDuplicatedKey, "ชื่อซ้ำกับคอร์สที่ยังอยู่ DB ต้องกัน")
 
 	softDeleteCourse(t, tx, first.ID)
 
-	_, err = repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1})
+	_, err = repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1}, nil)
 	assert.NoError(t, err, "ลบไปแล้ว ต้องสร้างชื่อเดิมได้")
 }
 
@@ -196,7 +196,7 @@ func TestCourseRepo_UpdateToActiveNameIsRejectedByDB(t *testing.T) {
 
 	b.Name = a.Name
 	err := expectDBError(t, tx, func() error {
-		_, err := repo.UpdateCourse(ctx, b)
+		_, err := repo.UpdateCourse(ctx, b, nil)
 		return err
 	})
 	assert.ErrorIs(t, err, gorm.ErrDuplicatedKey)
@@ -243,6 +243,38 @@ func TestCourseRepo_GetAllCourse_PagesWithoutDuplicatesAndExcludesDeleted(t *tes
 	rows, _, err := repo.GetAllCourse(ctx, "", pages+1, 2)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "เกินหน้าสุดท้าย = ว่าง ไม่ error")
+}
+
+// ของที่คอร์สใช้ต้องมาด้วย เรียงตามชื่อสินค้า และสินค้าที่ถูก soft delete ต้องยังเห็นชื่อ
+func TestCourseRepo_GetAllCourse_PreloadsItemsWithStock(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	p := uniqueName("itest-items")
+	withItems := mkCourse(t, tx, p+"-a")
+	noItems := mkCourse(t, tx, p+"-b")
+
+	stockB := mkStock(t, tx, p+"-stock-b")
+	stockA := mkStock(t, tx, p+"-stock-a")
+	require.NoError(t, tx.Create(&models.CourseItem{CourseID: withItems.ID, StockID: stockB.ID, UseQty: 2}).Error)
+	require.NoError(t, tx.Create(&models.CourseItem{CourseID: withItems.ID, StockID: stockA.ID, UseQty: 1}).Error)
+	require.NoError(t, tx.Delete(&models.Stock{}, "id = ?", stockB.ID).Error)
+
+	rows, _, err := repo.GetAllCourse(ctx, p, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, []string{p + "-a", p + "-b"}, courseNames(rows))
+
+	items := rows[0].Items
+	require.Len(t, items, 2, "สินค้าที่ถูก soft delete ต้องไม่ทำให้ item หาย")
+	for _, it := range items {
+		require.NotNil(t, it.Stock, "ต้อง preload stock มาด้วย")
+	}
+	assert.Equal(t, stockA.ID, items[0].StockID, "ต้องเรียงตามชื่อสินค้า")
+	assert.Equal(t, 1, items[0].UseQty)
+	assert.Equal(t, p+"-stock-b", items[1].Stock.Name, "สินค้าที่ถูก soft delete ต้องยังเห็นชื่อ")
+	assert.Equal(t, 2, items[1].UseQty)
+
+	assert.Empty(t, rows[1].Items, "คอร์สที่ไม่มีของที่ใช้ = ว่าง")
+	assert.Equal(t, noItems.ID, rows[1].ID)
 }
 
 // ---------- Repository: search ----------
@@ -314,7 +346,7 @@ func TestCourseRepo_UpdateCourse(t *testing.T) {
 	c.Price = decimal.NewFromInt(777)
 	c.MaxSession = 9
 	c.IsActive = false
-	_, err := repo.UpdateCourse(ctx, c)
+	_, err := repo.UpdateCourse(ctx, c, nil)
 	require.NoError(t, err)
 
 	got, err := repo.FindCourseById(ctx, c.ID)
@@ -326,7 +358,7 @@ func TestCourseRepo_UpdateCourse(t *testing.T) {
 
 	// ล้าง valid_day เป็น NULL (ไม่หมดอายุ) ต้องบันทึกได้จริง
 	got.ValidDay = nil
-	_, err = repo.UpdateCourse(ctx, *got)
+	_, err = repo.UpdateCourse(ctx, *got, nil)
 	require.NoError(t, err)
 	again, err := repo.FindCourseById(ctx, c.ID)
 	require.NoError(t, err)
@@ -342,10 +374,8 @@ func TestCourseRepo_CheckCourseHasRelation(t *testing.T) {
 		want  bool
 	}{
 		{"ไม่มีใครอ้างถึง", func(t *testing.T, tx *gorm.DB, courseID string) {}, false},
-		{"course_items", func(t *testing.T, tx *gorm.DB, courseID string) {
-			stock := mkStock(t, tx, uniqueName("itest-ci-stock"))
-			require.NoError(t, tx.Create(&models.CourseItem{CourseID: courseID, StockID: stock.ID, UseQty: 1}).Error)
-		}, true},
+		// ของที่คอร์สใช้ไม่ใช่ประวัติ ลบจริงได้ (HardDeleteCourse ลบไปด้วย)
+		{"มีแค่ course_items", func(t *testing.T, tx *gorm.DB, courseID string) { mkItemFor(t, tx, courseID) }, false},
 		{"order_items", func(t *testing.T, tx *gorm.DB, courseID string) { mkCourseOrderItem(t, tx, courseID) }, true},
 		{"service_usages", func(t *testing.T, tx *gorm.DB, courseID string) { mkVIPUsage(t, tx, courseID) }, true},
 	}
@@ -368,17 +398,21 @@ func TestCourseRepo_CheckCourseHasRelation(t *testing.T) {
 	}
 }
 
+// mkItemFor ผูกสินค้าใหม่ 1 ชิ้นเข้ากับคอร์สนี้
+func mkItemFor(t *testing.T, tx *gorm.DB, courseID string) {
+	t.Helper()
+	stock := mkStock(t, tx, uniqueName("itest-ci-stock"))
+	require.NoError(t, tx.Create(&models.CourseItem{CourseID: courseID, StockID: stock.ID, UseQty: 1}).Error)
+}
+
 // ทุกตารางที่ CheckCourseHasRelation เช็คต้องมี FK จริง (hard delete โดนกัน)
 // service พึ่งพา ErrForeignKeyViolated เพื่อถอยไป soft delete ตอนมีคนขายพอดี
+// ติด FK แล้ว course_items ที่ลบไปในทรานแซกชันเดียวกันต้องกลับมาครบ
 func TestCourseRepo_HardDeleteBlockedByFK(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, tx *gorm.DB, courseID string)
 	}{
-		{"course_items", func(t *testing.T, tx *gorm.DB, courseID string) {
-			stock := mkStock(t, tx, uniqueName("itest-fk-stock"))
-			require.NoError(t, tx.Create(&models.CourseItem{CourseID: courseID, StockID: stock.ID, UseQty: 1}).Error)
-		}},
 		{"order_items", func(t *testing.T, tx *gorm.DB, courseID string) { mkCourseOrderItem(t, tx, courseID) }},
 		{"service_usages", func(t *testing.T, tx *gorm.DB, courseID string) { mkVIPUsage(t, tx, courseID) }},
 	}
@@ -387,11 +421,13 @@ func TestCourseRepo_HardDeleteBlockedByFK(t *testing.T) {
 			tx := newTx(t)
 			repo := course.NewRepository(tx)
 			c := mkCourse(t, tx, uniqueName("itest-fk"))
+			mkItemFor(t, tx, c.ID)
 			tt.setup(t, tx, c.ID)
 
 			err := expectDBError(t, tx, func() error { return repo.HardDeleteCourse(ctx, c.ID) })
 			assert.ErrorIs(t, err, gorm.ErrForeignKeyViolated)
 			assert.EqualValues(t, 1, countCourse(t, tx, c.ID, false), "ต้องยังอยู่")
+			assert.EqualValues(t, 1, countCourseItems(t, tx, c.ID), "course_items ต้อง rollback กลับมาครบ")
 		})
 	}
 }
@@ -408,6 +444,21 @@ func TestCourseRepo_SoftAndHardDelete(t *testing.T) {
 
 	require.NoError(t, repo.HardDeleteCourse(ctx, hard.ID))
 	assert.EqualValues(t, 0, countCourse(t, tx, hard.ID, true), "hard delete ต้องหายจริง")
+}
+
+func TestCourseRepo_HardDeleteRemovesItems(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	c := mkCourse(t, tx, uniqueName("itest-hard-items"))
+	other := mkCourse(t, tx, uniqueName("itest-hard-other"))
+	mkItemFor(t, tx, c.ID)
+	mkItemFor(t, tx, c.ID)
+	mkItemFor(t, tx, other.ID)
+
+	require.NoError(t, repo.HardDeleteCourse(ctx, c.ID))
+	assert.EqualValues(t, 0, countCourse(t, tx, c.ID, true))
+	assert.EqualValues(t, 0, countCourseItems(t, tx, c.ID), "ของที่คอร์สใช้ต้องหายไปด้วย")
+	assert.EqualValues(t, 1, countCourseItems(t, tx, other.ID), "ของของคอร์สอื่นต้องไม่โดนลบ")
 }
 
 // ---------- Service + Repository จริง ----------
@@ -433,6 +484,27 @@ func TestCourseService_Delete_HardWithoutRelation_SoftWithRelation(t *testing.T)
 
 	err := svc.DeleteCourseById(ctx, sold.ID)
 	assert.Equal(t, _package.CodeNotFound, courseErrCode(err), "ลบซ้ำ = 404")
+}
+
+// คอร์สที่มีของที่ใช้แต่ยังไม่เคยขาย = ลบจริงพร้อม items · เคยขายแล้ว = soft delete และ items ยังอยู่
+func TestCourseService_Delete_WithItems(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+
+	unsold := mkCourse(t, tx, uniqueName("itest-del-unsold"))
+	mkItemFor(t, tx, unsold.ID)
+	sold := mkCourse(t, tx, uniqueName("itest-del-sold"))
+	mkItemFor(t, tx, sold.ID)
+	mkCourseOrderItem(t, tx, sold.ID)
+
+	require.NoError(t, svc.DeleteCourseById(ctx, unsold.ID))
+	assert.EqualValues(t, 0, countCourse(t, tx, unsold.ID, true), "ยังไม่เคยขาย = ลบจริง แม้มีของที่ใช้")
+	assert.EqualValues(t, 0, countCourseItems(t, tx, unsold.ID))
+
+	require.NoError(t, svc.DeleteCourseById(ctx, sold.ID))
+	assert.EqualValues(t, 1, countCourse(t, tx, sold.ID, true), "เคยขายแล้ว = soft delete")
+	assert.EqualValues(t, 0, countCourse(t, tx, sold.ID, false))
+	assert.EqualValues(t, 1, countCourseItems(t, tx, sold.ID), "soft delete ไม่แตะของที่คอร์สใช้")
 }
 
 func TestCourseService_Update_NameConflictRespectsSoftDelete(t *testing.T) {
@@ -467,4 +539,179 @@ func TestCourseService_Add_AfterSoftDeleteSameNameAllowed(t *testing.T) {
 	created, err := svc.AddCourse(ctx, course.AddCourseRequest{Name: old.Name, Price: decimal.NewFromInt(1), MaxSession: 1})
 	require.NoError(t, err)
 	assert.NotEqual(t, old.ID, created.ID)
+}
+
+// ---------- POST พร้อม items ----------
+
+func countCourseItems(t *testing.T, tx *gorm.DB, courseID string) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, tx.Model(&models.CourseItem{}).Where("course_id = ?", courseID).Count(&n).Error)
+	return n
+}
+
+func TestCourseService_Add_WithItems(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	p := uniqueName("itest-add-items")
+	// ชื่อไทย: ลำดับขึ้นกับ collation ของ DB จึงเทียบกับ GET แทนการ hardcode ลำดับ
+	cotton := mkStock(t, tx, p+"-สำลี")
+	gel := mkStock(t, tx, p+"-เจล")
+	qtyByStock := map[string]int{cotton.ID: 2, gel.ID: 1}
+
+	created, err := svc.AddCourse(ctx, course.AddCourseRequest{
+		Name: p, Price: decimal.NewFromInt(1), MaxSession: 1,
+		Items: []course.CourseItemRequest{{StockID: cotton.ID, UseQty: 2}, {StockID: gel.ID, UseQty: 1}},
+	})
+	require.NoError(t, err)
+	require.Len(t, created.Items, 2)
+	for _, it := range created.Items {
+		assert.NotEmpty(t, it.Stock.Name, "ต้องมีชื่อสินค้า")
+		assert.Equal(t, qtyByStock[it.Stock.ID], it.UseQty)
+	}
+
+	// สิ่งที่บันทึกจริงและลำดับต้องตรงกับที่ GET คืน
+	rows, _, err := course.NewRepository(tx).GetAllCourse(ctx, p, 1, 20)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Len(t, rows[0].Items, 2)
+	for i, it := range rows[0].Items {
+		assert.Equal(t, it.StockID, created.Items[i].Stock.ID, "ลำดับ items ของ POST ต้องตรงกับ GET")
+		assert.Equal(t, it.UseQty, created.Items[i].UseQty)
+	}
+}
+
+func TestCourseService_Add_SoftDeletedStockRejected(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	name := uniqueName("itest-add-gone")
+	gone := mkStock(t, tx, uniqueName("itest-gone-stock"))
+	require.NoError(t, tx.Delete(&models.Stock{}, "id = ?", gone.ID).Error)
+
+	_, err := svc.AddCourse(ctx, course.AddCourseRequest{
+		Name: name, Price: decimal.NewFromInt(1), MaxSession: 1,
+		Items: []course.CourseItemRequest{{StockID: gone.ID, UseQty: 1}},
+	})
+	assert.Equal(t, _package.CodeValidation, courseErrCode(err))
+
+	found, err := course.NewRepository(tx).FindCourseByName(ctx, name)
+	require.NoError(t, err)
+	assert.Nil(t, found, "item ไม่ผ่าน คอร์สต้องไม่ถูกสร้าง")
+}
+
+// item บันทึกไม่ผ่าน (FK) ต้อง rollback คอร์สด้วย ไม่ค้างเป็นคอร์สที่ไม่มีของ
+func TestCourseRepo_CreateCourse_RollsBackWhenItemFails(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	name := uniqueName("itest-rollback")
+
+	// savepoint แยก เพราะ error ใน Postgres ทำให้ทรานแซกชันนอกใช้ต่อไม่ได้
+	require.NoError(t, tx.SavePoint("before_create").Error)
+	_, err := repo.CreateCourse(ctx, models.Course{Name: name, Price: decimal.NewFromInt(1), MaxSession: 1},
+		[]models.CourseItem{{StockID: "99999999-9999-9999-9999-999999999999", UseQty: 1}})
+	require.ErrorIs(t, err, gorm.ErrForeignKeyViolated)
+	require.NoError(t, tx.RollbackTo("before_create").Error)
+
+	found, err := repo.FindCourseByName(ctx, name)
+	require.NoError(t, err)
+	assert.Nil(t, found)
+}
+
+func TestCourseRepo_CreateCourse_SavesItems(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	stock := mkStock(t, tx, uniqueName("itest-save-stock"))
+
+	created, err := repo.CreateCourse(ctx,
+		models.Course{Name: uniqueName("itest-save"), Price: decimal.NewFromInt(1), MaxSession: 1},
+		[]models.CourseItem{{StockID: stock.ID, UseQty: 3}})
+	require.NoError(t, err)
+	require.Len(t, created.Items, 1)
+	assert.Equal(t, created.ID, created.Items[0].CourseID)
+	require.NotNil(t, created.Items[0].Stock, "ต้องอ่านกลับพร้อม stock")
+	assert.Equal(t, stock.Name, created.Items[0].Stock.Name)
+	assert.EqualValues(t, 1, countCourseItems(t, tx, created.ID))
+}
+
+// ---------- PATCH พร้อม items ----------
+
+func TestCourseService_Update_Items(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	c := mkCourse(t, tx, uniqueName("itest-upd-items"))
+	keep := mkStock(t, tx, uniqueName("itest-keep"))
+	drop := mkStock(t, tx, uniqueName("itest-drop"))
+	add := mkStock(t, tx, uniqueName("itest-add"))
+	require.NoError(t, tx.Create(&[]models.CourseItem{
+		{CourseID: c.ID, StockID: keep.ID, UseQty: 1},
+		{CourseID: c.ID, StockID: drop.ID, UseQty: 1},
+	}).Error)
+
+	// ไม่ส่ง items = ไม่แตะของเดิม
+	name := c.Name + "-renamed"
+	got, err := svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{Name: &name})
+	require.NoError(t, err)
+	assert.Len(t, got.Items, 2)
+	assert.EqualValues(t, 2, countCourseItems(t, tx, c.ID))
+
+	// แทนทั้งชุด: keep เปลี่ยน use_qty, drop หายไป, add เพิ่มเข้ามา
+	got, err = svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{Items: &[]course.CourseItemRequest{
+		{StockID: keep.ID, UseQty: 3}, {StockID: add.ID, UseQty: 2},
+	}})
+	require.NoError(t, err)
+	qty := map[string]int{}
+	for _, it := range got.Items {
+		qty[it.Stock.ID] = it.UseQty
+	}
+	assert.Equal(t, map[string]int{keep.ID: 3, add.ID: 2}, qty)
+	assert.EqualValues(t, 2, countCourseItems(t, tx, c.ID))
+
+	// [] = ล้างทั้งหมด
+	got, err = svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{Items: &[]course.CourseItemRequest{}})
+	require.NoError(t, err)
+	assert.Empty(t, got.Items)
+	assert.EqualValues(t, 0, countCourseItems(t, tx, c.ID))
+}
+
+// ของที่ผูกอยู่แล้วแต่สินค้าถูก soft delete ไปแล้ว ต้องคงไว้ได้ แต่เพิ่มเข้าคอร์สอื่นไม่ได้
+func TestCourseService_Update_KeepsLinkedSoftDeletedStock(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	c := mkCourse(t, tx, uniqueName("itest-upd-keep"))
+	other := mkCourse(t, tx, uniqueName("itest-upd-other"))
+	gone := mkStock(t, tx, uniqueName("itest-gone"))
+	require.NoError(t, tx.Create(&models.CourseItem{CourseID: c.ID, StockID: gone.ID, UseQty: 1}).Error)
+	require.NoError(t, tx.Delete(&models.Stock{}, "id = ?", gone.ID).Error)
+
+	got, err := svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{
+		Items: &[]course.CourseItemRequest{{StockID: gone.ID, UseQty: 2}},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, gone.Name, got.Items[0].Stock.Name, "ยังเห็นชื่อสินค้าที่ถูกลบ")
+	assert.Equal(t, 2, got.Items[0].UseQty)
+
+	_, err = svc.UpdateCourseById(ctx, other.ID, course.UpdateCourseRequest{
+		Items: &[]course.CourseItemRequest{{StockID: gone.ID, UseQty: 1}},
+	})
+	assert.Equal(t, _package.CodeValidation, courseErrCode(err))
+	assert.EqualValues(t, 0, countCourseItems(t, tx, other.ID))
+}
+
+// items ไม่ผ่าน ต้องไม่แก้ field อื่นของคอร์สด้วย
+func TestCourseService_Update_RejectedItemsLeaveCourseUntouched(t *testing.T) {
+	tx := newTx(t)
+	svc := course.NewService(course.NewRepository(tx))
+	c := mkCourse(t, tx, uniqueName("itest-upd-reject"))
+	name := c.Name + "-renamed"
+
+	_, err := svc.UpdateCourseById(ctx, c.ID, course.UpdateCourseRequest{
+		Name:  &name,
+		Items: &[]course.CourseItemRequest{{StockID: "99999999-9999-9999-9999-999999999999", UseQty: 1}},
+	})
+	assert.Equal(t, _package.CodeValidation, courseErrCode(err))
+
+	var after models.Course
+	require.NoError(t, tx.First(&after, "id = ?", c.ID).Error)
+	assert.Equal(t, c.Name, after.Name)
 }

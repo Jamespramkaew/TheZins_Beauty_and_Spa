@@ -48,6 +48,7 @@ type Course struct {
 	IsActive    bool            `gorm:"not null;default:true" json:"is_active"`
 	CreatedAt   time.Time       `json:"created_at"`
 	DeletedAt   gorm.DeletedAt  `gorm:"index" json:"deleted_at"`
+	Items       []CourseItem    `gorm:"foreignKey:CourseID" json:"items,omitempty"` // ของที่ใช้ต่อการทำ 1 ครั้ง (มีเฉพาะตอน preload)
 }
 
 func (Course) TableName() string { return "courses" }

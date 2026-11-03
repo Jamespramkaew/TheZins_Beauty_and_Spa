@@ -2,8 +2,12 @@ package course
 
 import (
 	"encoding/json"
+	"time"
+
+	"backend/internal/models"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // AddCourseRequest รับ body ของ POST /api/courses
@@ -14,6 +18,14 @@ type AddCourseRequest struct {
 	ValidDay    *int            `json:"valid_day" validate:"omitempty,gte=1"`
 	ServiceComm decimal.Decimal `json:"service_comm" validate:"gte=0"`
 	Category    string          `json:"category" validate:"max=50"`
+	// ของที่ใช้ต่อการทำ 1 ครั้ง ไม่ส่ง / [] = คอร์สที่ไม่ใช้ของ
+	Items []CourseItemRequest `json:"items" validate:"omitempty,dive"`
+}
+
+// CourseItemRequest = ของที่คอร์สใช้ 1 อย่าง (ห้ามส่ง stock_id ซ้ำใน list เดียวกัน)
+type CourseItemRequest struct {
+	StockID string `json:"stock_id" validate:"required,uuid"`
+	UseQty  int    `json:"use_qty" validate:"required,gte=1"` // ดูความหมายที่ models.CourseItem
 }
 
 // UpdateCourseRequest รับ body ของ PATCH /api/courses/:id
@@ -27,6 +39,8 @@ type UpdateCourseRequest struct {
 	ServiceComm *decimal.Decimal `json:"service_comm"`
 	Category    *string          `json:"category"`
 	IsActive    *bool            `json:"is_active"`
+	// ของที่ใช้ต่อการทำ 1 ครั้ง ส่งมา = แทนทั้งชุด ([] = ล้างทั้งหมด) · ไม่ส่ง / null = ไม่แตะของเดิม
+	Items *[]CourseItemRequest `json:"items"`
 }
 
 // GetAllCourseQuery = query string ของ GET /api/courses (รับเป็นข้อความ แปลงใน service)
@@ -34,4 +48,56 @@ type GetAllCourseQuery struct {
 	Search   string // ค้นชื่อคอร์ส (ไม่สนตัวพิมพ์เล็กใหญ่) ว่าง = ทั้งหมด
 	Page     string // ว่าง = 1
 	PageSize string // ว่าง = 20 สูงสุด 100
+}
+
+// CourseResponse = คอร์ส 1 แถวใน GET /api/courses พร้อมของที่ใช้ต่อการทำ 1 ครั้ง
+type CourseResponse struct {
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	Price       decimal.Decimal      `json:"price"`
+	MaxSession  int                  `json:"max_session"`
+	ValidDay    *int                 `json:"valid_day"`
+	ServiceComm decimal.Decimal      `json:"service_comm"`
+	Category    string               `json:"category"`
+	IsActive    bool                 `json:"is_active"`
+	CreatedAt   time.Time            `json:"created_at"`
+	DeletedAt   gorm.DeletedAt       `json:"deleted_at"`
+	Items       []CourseItemResponse `json:"items"` // ไม่มีของที่ใช้ = [] (ไม่ใช่ null)
+}
+
+// CourseItemResponse = ของที่คอร์สใช้ 1 อย่าง (course_id ไม่ส่งซ้ำเพราะอยู่ในคอร์สแล้ว)
+type CourseItemResponse struct {
+	Stock  StockRef `json:"stock"`
+	UseQty int      `json:"use_qty"`
+}
+
+type StockRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// toCourseResponse แปลง model เป็น response
+// stock ที่ไม่ได้ preload (nil) จะได้ object ที่มีเฉพาะ id แทนที่จะ panic
+func toCourseResponse(c models.Course) CourseResponse {
+	r := CourseResponse{
+		ID:          c.ID,
+		Name:        c.Name,
+		Price:       c.Price,
+		MaxSession:  c.MaxSession,
+		ValidDay:    c.ValidDay,
+		ServiceComm: c.ServiceComm,
+		Category:    c.Category,
+		IsActive:    c.IsActive,
+		CreatedAt:   c.CreatedAt,
+		DeletedAt:   c.DeletedAt,
+		Items:       make([]CourseItemResponse, 0, len(c.Items)),
+	}
+	for _, it := range c.Items {
+		item := CourseItemResponse{Stock: StockRef{ID: it.StockID}, UseQty: it.UseQty}
+		if it.Stock != nil {
+			item.Stock.Name = it.Stock.Name
+		}
+		r.Items = append(r.Items, item)
+	}
+	return r
 }

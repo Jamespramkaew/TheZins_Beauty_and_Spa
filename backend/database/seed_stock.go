@@ -15,8 +15,9 @@ const (
 	stockCream     = "ครีมบำรุงหน้า"
 	stockSerum     = "เซรั่มวิตามินซี"
 	stockSunscreen = "ครีมกันแดด"
-	stockGel       = "เจลนวดหน้า (ใช้ในร้าน)" // uses_per_unit = 20
-	stockMask      = "มาส์กหน้า (ใช้ในร้าน)"  // uses_per_unit = 10
+	stockGel       = "เจลนวดหน้า (ใช้ในร้าน)"   // uses_per_unit = 20
+	stockMask      = "มาส์กหน้า (ใช้ในร้าน)"    // uses_per_unit = 10
+	stockOil       = "น้ำมันนวดตัว (ใช้ในร้าน)" // uses_per_unit = 15
 )
 
 // receiveDaysAgo = รับของเข้าเมื่อกี่วันก่อน (ต้องเก่ากว่าการเปิดกระปุกทุกใบ)
@@ -51,12 +52,14 @@ type seedContainer struct {
 //	ของเปิดเป็นกระปุก
 //	  เจลนวดหน้า        5-3=2 / 4-2=2 / 2-1=1  (S3 ต่ำกว่า min_qty = 2)
 //	  มาส์กหน้า          - / 3-1=2 / 3-1=2    (S1 ไม่มีสินค้านี้เลย)
+//	  น้ำมันนวดตัว       3-1=2 / 3-1=2 / 3-1=2
 var seedReceives = []seedReceive{
 	{"S1", stockCream, 10}, {"S2", stockCream, 10}, {"S3", stockCream, 10},
 	{"S1", stockSerum, 6}, {"S2", stockSerum, 6}, {"S3", stockSerum, 6},
 	{"S1", stockSunscreen, 12}, {"S2", stockSunscreen, 12}, {"S3", stockSunscreen, 4},
 	{"S1", stockGel, 5}, {"S2", stockGel, 4}, {"S3", stockGel, 2},
 	{"S2", stockMask, 3}, {"S3", stockMask, 3},
+	{"S1", stockOil, 3}, {"S2", stockOil, 3}, {"S3", stockOil, 3},
 }
 
 // กระปุกตัวอย่าง ครอบคลุม: ปิด finished / damaged / expired, เปิดอยู่, เปิดซ้อนกัน (S1 เจล 2 ใบ),
@@ -72,6 +75,10 @@ var seedContainers = []seedContainer{
 
 	{branch: "S3", stock: stockGel, openedAgo: 10, closedAgo: 9, reason: "damaged", usesCount: 7},
 	{branch: "S3", stock: stockMask, openedAgo: 2},
+
+	{branch: "S1", stock: stockOil, openedAgo: 3},
+	{branch: "S2", stock: stockOil, openedAgo: 3},
+	{branch: "S3", stock: stockOil, openedAgo: 3},
 }
 
 // SeedStockInventory สร้างสต็อกตั้งต้นให้สอดคล้องกันทั้งระบบ ในทรานแซกชันเดียว:
