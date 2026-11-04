@@ -12,7 +12,7 @@ import { formatBaht } from '../../../utils/format'
 import { mapCourseError } from '../courseErrors'
 import { pricePerSession, toNumber } from '../courseUtils'
 import CourseItemsField from './CourseItemsField'
-import Toggle from './Toggle'
+import Toggle from '../../../components/ui/Toggle'
 
 dayjs.extend(buddhistEra)
 

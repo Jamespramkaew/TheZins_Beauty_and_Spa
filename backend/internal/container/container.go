@@ -26,6 +26,8 @@ type Container struct {
 	StockHandler    *stock.Handler
 	StockLogHandler *stocklog.Handler
 	CourseHandler   *course.Handler
+	BranchHandler   *branch.Handler
+	EmployeeHandler *employee.Handler
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
@@ -49,9 +51,11 @@ func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
 	stockService := stock.NewService(stockRepository)
 	stockHandler := stock.NewHandler(stockService)
 
-	// Initialize Branch / Employee (repository อย่างเดียว ยังไม่มี service/handler)
+	// Initialize Branch / Employee (อ่านอย่างเดียว handler เรียก repository ตรง ไม่มี service)
 	branchRepository := branch.NewRepository(db)
+	branchHandler := branch.NewHandler(branchRepository)
 	employeeRepository := employee.NewRepository(db)
+	employeeHandler := employee.NewHandler(employeeRepository)
 
 	// Initialize Stock Log Module
 	stockLogRepository := stocklog.NewRepository(db)
@@ -71,6 +75,8 @@ func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
 		StockHandler:    stockHandler,
 		StockLogHandler: stockLogHandler,
 		CourseHandler:   courseHandler,
+		BranchHandler:   branchHandler,
+		EmployeeHandler: employeeHandler,
 	}
 }
 

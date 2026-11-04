@@ -11,6 +11,7 @@ import (
 
 type Repository interface {
 	FindBranchById(ctx context.Context, id string) (*models.Branch, error)
+	GetActiveBranches(ctx context.Context) ([]models.Branch, error)
 }
 
 type repository struct {
@@ -34,4 +35,14 @@ func (r *repository) FindBranchById(ctx context.Context, id string) (*models.Bra
 		return nil, err
 	}
 	return &branch, nil
+}
+
+// GetActiveBranches คืนสาขาที่เปิดใช้งานทั้งหมด เรียงตามรหัสสาขา
+func (r *repository) GetActiveBranches(ctx context.Context) ([]models.Branch, error) {
+	branches := []models.Branch{}
+	err := r.db.WithContext(ctx).Where("is_active = TRUE").Order("code ASC").Find(&branches).Error
+	if err != nil {
+		return nil, err
+	}
+	return branches, nil
 }
