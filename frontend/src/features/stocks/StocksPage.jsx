@@ -4,7 +4,6 @@ import { FiClock, FiPlus, FiRepeat } from 'react-icons/fi'
 import { branchApi } from '../../api/branchApi'
 import { stockApi } from '../../api/stockApi'
 import { useAuth } from '../../hooks/useAuth'
-import { useToast } from '../../hooks/useToast'
 import ContainersDrawer from './components/ContainersDrawer'
 import DeleteStockDialog from './components/DeleteStockDialog'
 import LogsTab from './components/LogsTab'
@@ -29,7 +28,6 @@ const TABS = [
 function StocksPage() {
   const { user } = useAuth()
   const isAdmin = user.role === 'admin'
-  const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = TABS.some((item) => item.value === searchParams.get('tab')) ? searchParams.get('tab') : 'quantities'
 
@@ -38,7 +36,6 @@ function StocksPage() {
   const [qtyFilters, setQtyFilters] = useState(DEFAULT_QTY_FILTERS)
   const [logFilters, setLogFilters] = useState(DEFAULT_LOG_FILTERS)
   const [modal, setModal] = useState(null)
-  const [togglingIds, setTogglingIds] = useState(() => new Set())
 
   const branchQuery = useQuery(branchApi.getAll, {})
   const stocks = useQuery(stockApi.getAll, {}, { refreshKey })
@@ -68,23 +65,6 @@ function StocksPage() {
     } else if (kind === 'history') {
       setLogFilters({ ...DEFAULT_LOG_FILTERS, preset: 'month', stockId: row.stock_id, branchId: isAdmin ? row.branch_id : '' })
       setTab('logs')
-    }
-  }
-
-  const toggleActive = async (stock) => {
-    setTogglingIds((ids) => new Set(ids).add(stock.id))
-    try {
-      const response = await stockApi.update(stock.id, { is_active: !stock.is_active })
-      toast.success(response.data.is_active ? 'เปิดใช้งานแล้ว' : 'ปิดใช้งานแล้ว', `“${stock.name}”`)
-      refresh()
-    } catch {
-      toast.error('เปลี่ยนสถานะไม่สำเร็จ', 'กรุณาลองใหม่อีกครั้ง')
-    } finally {
-      setTogglingIds((ids) => {
-        const next = new Set(ids)
-        next.delete(stock.id)
-        return next
-      })
     }
   }
 
@@ -178,11 +158,9 @@ function StocksPage() {
           <ProductsTab
             isAdmin={isAdmin}
             stocks={stocks}
-            togglingIds={togglingIds}
             onCreate={() => setModal({ kind: 'product', stock: null })}
             onEdit={(stock) => setModal({ kind: 'product', stock })}
             onDelete={(stock) => setModal({ kind: 'delete', stock })}
-            onToggleActive={toggleActive}
           />
         )}
       </div>

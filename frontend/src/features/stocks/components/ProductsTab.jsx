@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { FiEdit2, FiEye, FiInfo, FiPlus, FiSearch, FiTrash2 } from 'react-icons/fi'
-import Toggle from '../../../components/ui/Toggle'
 import { formatBaht, formatNumber } from '../../../utils/format'
 import { toNumber } from '../stockUtils'
 import { primaryButtonClass } from './styles'
 import { CategoryText, EmptyState, InfoBox, LoadError, NoResults, SkeletonRows } from './ui'
 
 // GET /stocks is not paginated, so search runs in the browser
-function ProductsTab({ isAdmin, stocks, togglingIds, onCreate, onEdit, onDelete, onToggleActive }) {
+function ProductsTab({ isAdmin, stocks, onCreate, onEdit, onDelete }) {
   const [search, setSearch] = useState('')
   const keyword = search.trim().toLowerCase()
   const rows = (stocks.data ?? []).filter((stock) => !keyword || stock.name.toLowerCase().includes(keyword))
@@ -55,7 +54,7 @@ function ProductsTab({ isAdmin, stocks, togglingIds, onCreate, onEdit, onDelete,
         )
       ) : (
         <div className="overflow-x-auto rounded-card border border-line">
-          <table className="w-full min-w-[1120px] table-fixed text-sm">
+          <table className="w-full min-w-[960px] table-fixed text-sm">
             <colgroup>
               <col />
               <col className="w-[120px]" />
@@ -63,7 +62,6 @@ function ProductsTab({ isAdmin, stocks, togglingIds, onCreate, onEdit, onDelete,
               <col className="w-[170px]" />
               <col className="w-[110px]" />
               <col className="w-[120px]" />
-              <col className="w-[160px]" />
               {isAdmin && <col className="w-[130px]" />}
             </colgroup>
             <thead className="text-xs text-muted">
@@ -74,7 +72,6 @@ function ProductsTab({ isAdmin, stocks, togglingIds, onCreate, onEdit, onDelete,
                 <th className="px-3.5 py-3.5 font-medium">การขาย</th>
                 <th className="px-3.5 py-3.5 text-right font-medium">ใช้ได้ / ชิ้น</th>
                 <th className="py-3.5 pr-8 pl-3.5 text-right font-medium">จุดเตือน</th>
-                <th className={`py-3.5 pl-3.5 font-medium ${isAdmin ? 'pr-3.5' : 'pr-5'}`}>สถานะ</th>
                 {isAdmin && <th className="py-3.5 pr-5 pl-3.5 text-right font-medium">การทำงาน</th>}
               </tr>
             </thead>
@@ -83,7 +80,15 @@ function ProductsTab({ isAdmin, stocks, togglingIds, onCreate, onEdit, onDelete,
                 const dim = stock.is_active ? '' : 'opacity-55'
                 return (
                   <tr key={stock.id} className="border-b border-line bg-white transition-colors last:border-0 hover:bg-surface">
-                    <td className={`py-3.5 pr-3.5 pl-5 font-semibold text-ink [overflow-wrap:anywhere] ${dim}`}>{stock.name}</td>
+                    <td className="py-3.5 pr-3.5 pl-5">
+                      <p className={`font-semibold text-ink [overflow-wrap:anywhere] ${dim}`}>{stock.name}</p>
+                      {/* Status is changed from the edit form only (no inline switch to mis-click) */}
+                      {!stock.is_active && (
+                        <span className="mt-1 inline-flex rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
+                          ปิดใช้งาน
+                        </span>
+                      )}
+                    </td>
                     <td className={`px-3.5 py-3.5 ${dim}`}>
                       <CategoryText category={stock.category} />
                     </td>
@@ -95,28 +100,6 @@ function ProductsTab({ isAdmin, stocks, togglingIds, onCreate, onEdit, onDelete,
                     </td>
                     <td className={`px-3.5 py-3.5 text-right tabular-nums ${dim}`}>{formatNumber(stock.uses_per_unit)} ครั้ง</td>
                     <td className={`py-3.5 pr-8 pl-3.5 text-right tabular-nums ${dim}`}>{formatNumber(stock.min_qty)} ชิ้น</td>
-                    <td className={`py-3.5 pl-3.5 ${isAdmin ? 'pr-3.5' : 'pr-5'}`}>
-                      {isAdmin ? (
-                        <Toggle
-                          checked={stock.is_active}
-                          disabled={togglingIds.has(stock.id)}
-                          onChange={() => onToggleActive(stock)}
-                          label={`เปิดใช้งานสินค้า ${stock.name}`}
-                        >
-                          <span className={`whitespace-nowrap ${stock.is_active ? '' : 'text-muted'}`}>
-                            {stock.is_active ? 'ใช้งาน' : 'ปิดใช้งาน'}
-                          </span>
-                        </Toggle>
-                      ) : (
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                            stock.is_active ? 'bg-success-bg text-success' : 'bg-surface-2 text-muted'
-                          }`}
-                        >
-                          {stock.is_active ? 'ใช้งาน' : 'ปิดใช้งาน'}
-                        </span>
-                      )}
-                    </td>
                     {isAdmin && (
                       <td className="py-2.5 pr-5 pl-3.5">
                         <div className="flex justify-end gap-2">
