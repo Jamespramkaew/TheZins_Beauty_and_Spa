@@ -212,7 +212,7 @@ function QuantitiesTab({
                 <tr className="border-b border-line text-left whitespace-nowrap">
                   <th className="py-3.5 pr-3.5 pl-5 font-medium">สินค้า</th>
                   {showBranch && <th className="px-3.5 py-3.5 font-medium">สาขา</th>}
-                  <th className="px-3.5 py-3.5 text-right font-medium">คงเหลือ*</th>
+                  <th className="py-3.5 pr-8 pl-3.5 text-right font-medium">คงเหลือ*</th>
                   <th className="px-3.5 py-3.5 font-medium">สถานะ</th>
                   <th className="py-3.5 pr-5 pl-3.5">
                     <span className="sr-only">การทำงาน</span>
@@ -246,7 +246,7 @@ function QuantitiesTab({
                         </td>
                       )}
                       <td
-                        className={`px-3.5 py-3.5 text-right text-[15px] font-semibold tabular-nums ${
+                        className={`py-3.5 pr-8 pl-3.5 text-right text-[15px] font-semibold tabular-nums ${
                           row.quantity === 0 ? 'text-danger' : 'text-ink'
                         }`}
                       >

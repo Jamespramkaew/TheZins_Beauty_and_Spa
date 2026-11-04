@@ -55,14 +55,14 @@ function ProductsTab({ isAdmin, stocks, togglingIds, onCreate, onEdit, onDelete,
         )
       ) : (
         <div className="overflow-x-auto rounded-card border border-line">
-          <table className="w-full min-w-[1080px] table-fixed text-sm">
+          <table className="w-full min-w-[1120px] table-fixed text-sm">
             <colgroup>
               <col />
               <col className="w-[120px]" />
-              <col className="w-[110px]" />
+              <col className="w-[130px]" />
               <col className="w-[170px]" />
               <col className="w-[110px]" />
-              <col className="w-[100px]" />
+              <col className="w-[120px]" />
               <col className="w-[160px]" />
               {isAdmin && <col className="w-[130px]" />}
             </colgroup>
@@ -70,10 +70,10 @@ function ProductsTab({ isAdmin, stocks, togglingIds, onCreate, onEdit, onDelete,
               <tr className="border-b border-line text-left whitespace-nowrap">
                 <th className="py-3.5 pr-3.5 pl-5 font-medium">ชื่อสินค้า</th>
                 <th className="px-3.5 py-3.5 font-medium">หมวด</th>
-                <th className="px-3.5 py-3.5 text-right font-medium">ราคา</th>
+                <th className="py-3.5 pr-8 pl-3.5 text-right font-medium">ราคา</th>
                 <th className="px-3.5 py-3.5 font-medium">การขาย</th>
                 <th className="px-3.5 py-3.5 text-right font-medium">ใช้ได้ / ชิ้น</th>
-                <th className="px-3.5 py-3.5 text-right font-medium">จุดเตือน</th>
+                <th className="py-3.5 pr-8 pl-3.5 text-right font-medium">จุดเตือน</th>
                 <th className={`py-3.5 pl-3.5 font-medium ${isAdmin ? 'pr-3.5' : 'pr-5'}`}>สถานะ</th>
                 {isAdmin && <th className="py-3.5 pr-5 pl-3.5 text-right font-medium">การทำงาน</th>}
               </tr>
@@ -87,14 +87,14 @@ function ProductsTab({ isAdmin, stocks, togglingIds, onCreate, onEdit, onDelete,
                     <td className={`px-3.5 py-3.5 ${dim}`}>
                       <CategoryText category={stock.category} />
                     </td>
-                    <td className={`px-3.5 py-3.5 text-right font-semibold tabular-nums ${dim}`}>
+                    <td className={`py-3.5 pr-8 pl-3.5 text-right font-semibold tabular-nums ${dim}`}>
                       {stock.is_sellable ? formatBaht(toNumber(stock.price)) : <span className="text-subtle">—</span>}
                     </td>
                     <td className={`px-3.5 py-3.5 ${dim} ${stock.is_sellable ? 'text-ink' : 'text-muted'}`}>
                       {stock.is_sellable ? 'ขายได้' : 'ใช้ในบริการเท่านั้น'}
                     </td>
                     <td className={`px-3.5 py-3.5 text-right tabular-nums ${dim}`}>{formatNumber(stock.uses_per_unit)} ครั้ง</td>
-                    <td className={`px-3.5 py-3.5 text-right tabular-nums ${dim}`}>{formatNumber(stock.min_qty)} ชิ้น</td>
+                    <td className={`py-3.5 pr-8 pl-3.5 text-right tabular-nums ${dim}`}>{formatNumber(stock.min_qty)} ชิ้น</td>
                     <td className={`py-3.5 pl-3.5 ${isAdmin ? 'pr-3.5' : 'pr-5'}`}>
                       {isAdmin ? (
                         <Toggle

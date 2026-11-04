@@ -1,9 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { FiMoreHorizontal } from 'react-icons/fi'
 
 const MENU_WIDTH = 232
 
-// ⋯ button + popup menu. The popup is position:fixed so the table's overflow box can't clip it.
+// ⋯ button + popup menu. The popup is portalled to <body> and position:fixed: inside the table it would be
+// clipped by the overflow box, and a hovered row's `filter` would turn fixed into row-relative positioning.
 // items: [{ label, icon, onSelect } | 'divider']
 function RowMenu({ label, items }) {
   const [open, setOpen] = useState(false)
@@ -19,8 +21,12 @@ function RowMenu({ label, items }) {
     const below = rect.bottom + 6
     const top = below + menuHeight > window.innerHeight - 8 ? Math.max(8, rect.top - 6 - menuHeight) : below
     setPosition({ top, left: Math.max(8, rect.right - MENU_WIDTH) })
-    menuRef.current?.querySelector('[role="menuitem"]')?.focus()
   }, [open])
+
+  // Focus the first item once the menu is in place; preventScroll so focusing can't fire the scroll-to-close listener
+  useEffect(() => {
+    if (open && position) menuRef.current?.querySelector('[role="menuitem"]')?.focus({ preventScroll: true })
+  }, [open, position])
 
   useEffect(() => {
     if (!open) return undefined
@@ -63,7 +69,10 @@ function RowMenu({ label, items }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          setPosition(null)
+          setOpen((value) => !value)
+        }}
         className={`flex size-10 items-center justify-center rounded-control text-muted transition hover:bg-surface-2 hover:text-ink focus-visible:ring-3 focus-visible:ring-chart/20 focus-visible:outline-none ${
           open ? 'border border-line-strong bg-white text-ink' : ''
         }`}
@@ -71,37 +80,43 @@ function RowMenu({ label, items }) {
         <FiMoreHorizontal className="size-4" />
       </button>
 
-      {open && (
-        <div
-          ref={menuRef}
-          id={menuId}
-          role="menu"
-          aria-label={label}
-          onKeyDown={onMenuKeyDown}
-          style={{ top: position?.top ?? -9999, left: position?.left ?? -9999, width: MENU_WIDTH }}
-          className="fixed z-30 rounded-card border border-line bg-white p-1.5 shadow-[0_16px_40px_-16px_rgba(23,24,28,0.35)]"
-        >
-          {items.map((item, index) =>
-            item === 'divider' ? (
-              <div key={`divider-${index}`} role="separator" className="my-1.5 border-t border-line" />
-            ) : (
-              <button
-                key={item.label}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false)
-                  item.onSelect()
-                }}
-                className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-ink transition hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
-              >
-                <item.icon className="size-4 text-muted" />
-                {item.label}
-              </button>
-            ),
-          )}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            id={menuId}
+            role="menu"
+            aria-label={label}
+            onKeyDown={onMenuKeyDown}
+            style={{
+              top: position?.top ?? -9999,
+              left: position?.left ?? -9999,
+              width: MENU_WIDTH,
+            }}
+            className="fixed z-30 rounded-card border border-line bg-white p-1.5 shadow-[0_16px_40px_-16px_rgba(23,24,28,0.35)]"
+          >
+            {items.map((item, index) =>
+              item === 'divider' ? (
+                <div key={`divider-${index}`} role="separator" className="my-1.5 border-t border-line" />
+              ) : (
+                <button
+                  key={item.label}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false)
+                    item.onSelect()
+                  }}
+                  className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-ink transition hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+                >
+                  <item.icon className="size-4 text-muted" />
+                  {item.label}
+                </button>
+              ),
+            )}
+          </div>,
+          document.body,
+        )}
     </>
   )
 }

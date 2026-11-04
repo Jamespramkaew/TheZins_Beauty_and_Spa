@@ -190,13 +190,13 @@ function LogsTab({ isAdmin, branches, stocks, filters, onFiltersChange, refreshK
           <NoResults onClear={filtered ? clearFilters : undefined} />
         ) : (
           <div className={`overflow-x-auto rounded-card border border-line transition-opacity ${logs.loading ? 'opacity-60' : ''}`}>
-            <table className="w-full min-w-[1180px] table-fixed text-sm">
+            <table className="w-full min-w-[1200px] table-fixed text-sm">
               <colgroup>
                 <col className="w-[130px]" />
                 <col />
                 <col className="w-[96px]" />
                 <col className="w-[180px]" />
-                <col className="w-[96px]" />
+                <col className="w-[116px]" />
                 <col className="w-[150px]" />
                 <col className="w-[110px]" />
                 <col className="w-[230px]" />
@@ -207,7 +207,7 @@ function LogsTab({ isAdmin, branches, stocks, filters, onFiltersChange, refreshK
                   <th className="px-3.5 py-3.5 font-medium">สินค้า</th>
                   <th className="px-3.5 py-3.5 font-medium">สาขา</th>
                   <th className="px-3.5 py-3.5 font-medium">ประเภท</th>
-                  <th className="px-3.5 py-3.5 text-right font-medium">จำนวน</th>
+                  <th className="py-3.5 pr-8 pl-3.5 text-right font-medium">จำนวน</th>
                   <th className="px-3.5 py-3.5 font-medium">อ้างอิง</th>
                   <th className="px-3.5 py-3.5 font-medium">พนักงาน</th>
                   <th className="py-3.5 pr-5 pl-3.5 font-medium">หมายเหตุ</th>
@@ -240,7 +240,7 @@ function LogsTab({ isAdmin, branches, stocks, filters, onFiltersChange, refreshK
                         <LogTypeLabel type={log.log_type} />
                       </td>
                       <td
-                        className={`px-3.5 py-3.5 text-right font-semibold tabular-nums ${
+                        className={`py-3.5 pr-8 pl-3.5 text-right font-semibold tabular-nums ${
                           log.qty_change > 0 ? 'text-success' : 'text-danger'
                         }`}
                       >
