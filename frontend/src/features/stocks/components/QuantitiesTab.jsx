@@ -201,18 +201,19 @@ function QuantitiesTab({
         ) : (
           <div className={`overflow-x-auto rounded-card border border-line transition-opacity ${list.loading ? 'opacity-60' : ''}`}>
             <table className="w-full min-w-[760px] table-fixed text-sm">
+              {/* Percent widths spread the short columns across wide screens instead of piling them up on the right */}
               <colgroup>
                 <col />
-                {showBranch && <col className="w-[180px]" />}
-                <col className="w-[150px]" />
-                <col className="w-[160px]" />
+                {showBranch && <col className="w-[20%]" />}
+                <col className={showBranch ? 'w-[16%]' : 'w-[20%]'} />
+                <col className={showBranch ? 'w-[18%]' : 'w-[22%]'} />
                 <col className="w-[76px]" />
               </colgroup>
               <thead className="text-xs text-muted">
                 <tr className="border-b border-line text-left whitespace-nowrap">
                   <th className="py-3.5 pr-3.5 pl-5 font-medium">สินค้า</th>
                   {showBranch && <th className="px-3.5 py-3.5 font-medium">สาขา</th>}
-                  <th className="py-3.5 pr-8 pl-3.5 text-right font-medium">คงเหลือ*</th>
+                  <th className="px-3.5 py-3.5 font-medium">คงเหลือ*</th>
                   <th className="px-3.5 py-3.5 font-medium">สถานะ</th>
                   <th className="py-3.5 pr-5 pl-3.5">
                     <span className="sr-only">การทำงาน</span>
@@ -246,11 +247,12 @@ function QuantitiesTab({
                         </td>
                       )}
                       <td
-                        className={`py-3.5 pr-8 pl-3.5 text-right text-[15px] font-semibold tabular-nums ${
+                        className={`px-3.5 py-3.5 text-[15px] font-semibold tabular-nums ${
                           row.quantity === 0 ? 'text-danger' : 'text-ink'
                         }`}
                       >
-                        {formatNumber(row.quantity)}
+                        {/* Left-anchored like the other columns; the fixed-width box keeps digits right-aligned */}
+                        <span className="inline-block min-w-[5ch] text-right">{formatNumber(row.quantity)}</span>
                       </td>
                       <td className="px-3.5 py-3.5">
                         {row.is_active ? (
