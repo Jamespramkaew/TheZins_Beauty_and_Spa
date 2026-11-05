@@ -7,10 +7,7 @@ import { useToast } from '../../../hooks/useToast'
 import { formatBaht } from '../../../utils/format'
 import { toNumber } from '../../../utils/number'
 import { mapPaymentError } from '../orderErrors'
-import { PAYMENT_METHODS } from '../orderUtils'
-
-// Same rule as the backend: more than 0, at most 2 decimals
-const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/
+import { MONEY_PATTERN, PAYMENT_METHODS } from '../orderUtils'
 
 // Records one more payment. The backend re-checks the outstanding amount under a row lock,
 // so two cashiers paying at once can't overpay the bill.

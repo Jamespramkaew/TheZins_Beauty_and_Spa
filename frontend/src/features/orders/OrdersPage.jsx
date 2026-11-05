@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { FiRefreshCw, FiWifiOff, FiX } from 'react-icons/fi'
+import { FiPlus, FiRefreshCw, FiWifiOff, FiX } from 'react-icons/fi'
+import { Link } from 'react-router-dom'
 import { orderApi } from '../../api/orderApi'
 import FilterGroup from '../../components/ui/FilterGroup'
 import Pagination from '../../components/ui/Pagination'
@@ -54,11 +55,23 @@ function OrdersPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
-      <div>
-        <h1 className="text-[28px] font-bold tracking-tight text-ink">บิลขาย</h1>
-        <p className="mt-1 text-sm text-muted">
-          {isAdmin ? 'บิลของทุกสาขา เรียงจากวันที่ขายล่าสุด' : 'บิลของสาขานี้ เรียงจากวันที่ขายล่าสุด'}
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-[28px] font-bold tracking-tight text-ink">บิลขาย</h1>
+          <p className="mt-1 text-sm text-muted">
+            {isAdmin ? 'บิลของทุกสาขา เรียงจากวันที่ขายล่าสุด' : 'บิลของสาขานี้ เรียงจากวันที่ขายล่าสุด'}
+          </p>
+        </div>
+        {/* POST /orders is branch only, so admin gets no sell button */}
+        {!isAdmin && (
+          <Link
+            to="/sell"
+            className="flex h-11 items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#4d1621]"
+          >
+            <FiPlus className="size-4" />
+            ขาย
+          </Link>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

@@ -12,6 +12,17 @@ export const PAYMENT_METHODS = [
 const METHOD_LABELS = { cash: 'เงินสด', transfer: 'โอนเงิน', card: 'บัตร', credit: 'เครดิต VIP' }
 export const methodLabel = (method) => METHOD_LABELS[method] ?? method
 
+// Same rule as the backend for money: not negative, at most 2 decimals
+export const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/
+
+// order.source (optional) — '' = not asked
+export const SOURCES = [
+  { value: '', label: 'ไม่ระบุ' },
+  { value: 'walk-in', label: 'walk-in' },
+  { value: 'phone', label: 'โทรศัพท์' },
+  { value: 'page', label: 'เพจ' },
+]
+
 const SOURCE_LABELS = { phone: 'โทรศัพท์', 'walk-in': 'walk-in', page: 'เพจ' }
 export const sourceLabel = (source) => (source ? (SOURCE_LABELS[source] ?? source) : '')
 

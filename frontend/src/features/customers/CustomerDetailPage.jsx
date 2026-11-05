@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FiArrowLeft, FiEdit2, FiPhone, FiRefreshCw, FiStar } from 'react-icons/fi'
+import { FiArrowLeft, FiEdit2, FiPhone, FiRefreshCw, FiShoppingBag, FiStar } from 'react-icons/fi'
 import { Link, useParams } from 'react-router-dom'
 import { customerApi } from '../../api/customerApi'
 import { orderApi } from '../../api/orderApi'
@@ -126,6 +126,16 @@ function CustomerDetailPage() {
             <FiStar className="size-4" />
             {customer.tier === 'vip' ? 'เปลี่ยนเป็นทั่วไป' : 'เปลี่ยนเป็น VIP'}
           </button>
+          {/* POST /orders is branch only, so admin gets no sell button */}
+          {!isAdmin && (
+            <Link
+              to={`/sell?customer=${customer.id}`}
+              className="flex h-10 items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#4d1621]"
+            >
+              <FiShoppingBag className="size-4" />
+              ขาย
+            </Link>
+          )}
         </div>
       </header>
 
