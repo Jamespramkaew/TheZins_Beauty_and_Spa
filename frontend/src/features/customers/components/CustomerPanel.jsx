@@ -1,5 +1,6 @@
-import { FiEdit2, FiStar, FiX } from 'react-icons/fi'
-import { formatDate, fullName, initialOf, maskCitizenId, tierOf } from '../customerUtils'
+import { FiArrowRight, FiEdit2, FiStar, FiX } from 'react-icons/fi'
+import { Link } from 'react-router-dom'
+import { formatDate, formatDateOnly, fullName, initialOf, maskCitizenId, tierOf } from '../customerUtils'
 import TierBadge from './TierBadge'
 
 function CustomerPanel({ customer, onClose, onEdit, onChangeTier }) {
@@ -34,8 +35,7 @@ function CustomerPanel({ customer, onClose, onEdit, onChangeTier }) {
         <Row label="เลข HN" value={customer.hn_no} />
         <Row label="เบอร์โทร" value={customer.tel} />
         <Row label="เลขบัตรประชาชน" value={maskCitizenId(customer.citizen_id)} />
-        {/* b_day is a date at UTC midnight — format the YYYY-MM-DD part so no timezone can shift the day */}
-        <Row label="วันเกิด" value={customer.b_day ? formatDate(customer.b_day.slice(0, 10)) : ''} />
+        <Row label="วันเกิด" value={customer.b_day ? formatDateOnly(customer.b_day) : ''} />
         <Row label="ที่อยู่" value={customer.address} />
         <Row label="วันที่เพิ่ม" value={formatDate(customer.created_at)} />
       </dl>
@@ -57,6 +57,13 @@ function CustomerPanel({ customer, onClose, onEdit, onChangeTier }) {
           <FiStar className="size-4" />
           {customer.tier === 'vip' ? 'เปลี่ยนเป็นทั่วไป' : 'เปลี่ยนเป็น VIP'}
         </button>
+        <Link
+          to={`/customers/${customer.id}`}
+          className="col-span-2 flex h-10 items-center justify-center gap-2 rounded-control bg-primary text-sm font-semibold text-white shadow-sm transition hover:bg-[#4d1621]"
+        >
+          ดูประวัติการซื้อและรายละเอียด
+          <FiArrowRight className="size-4" />
+        </Link>
       </div>
     </aside>
   )
