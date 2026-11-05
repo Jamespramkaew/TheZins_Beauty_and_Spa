@@ -6,6 +6,7 @@ import { orderApi } from '../../api/orderApi'
 import { useAuth } from '../../hooks/useAuth'
 import { useQuery } from '../../hooks/useQuery'
 import { readApiError } from '../../utils/apiError'
+import { formatDate, formatDateOnly } from '../../utils/date'
 import { formatNumber } from '../../utils/format'
 import ChangeTierDialog from './components/ChangeTierDialog'
 import CustomerFormModal from './components/CustomerFormModal'
@@ -13,7 +14,7 @@ import NewCustomerBadge from './components/NewCustomerBadge'
 import OrderHistory from './components/OrderHistory'
 import TierBadge from './components/TierBadge'
 import TierHistory from './components/TierHistory'
-import { PAGE_SIZE_OPTIONS, formatDate, formatDateOnly, fullName, initialOf, maskCitizenId, tierOf } from './customerUtils'
+import { PAGE_SIZE_OPTIONS, fullName, initialOf, maskCitizenId, tierOf } from './customerUtils'
 
 // useQuery needs stable fetchers, so the id goes in params
 const fetchCustomer = ({ id }) => customerApi.getById(id)

@@ -1,6 +1,7 @@
 import { FiArrowRight, FiEdit2, FiStar, FiX } from 'react-icons/fi'
 import { Link } from 'react-router-dom'
-import { formatDate, formatDateOnly, fullName, initialOf, maskCitizenId, tierOf } from '../customerUtils'
+import { formatDate, formatDateOnly } from '../../../utils/date'
+import { fullName, initialOf, maskCitizenId, tierOf } from '../customerUtils'
 import NewCustomerBadge from './NewCustomerBadge'
 import TierBadge from './TierBadge'
 

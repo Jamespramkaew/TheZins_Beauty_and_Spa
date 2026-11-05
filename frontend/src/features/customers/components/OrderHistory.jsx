@@ -1,6 +1,9 @@
+import OrderStatusBadge from '../../../components/OrderStatusBadge'
 import Pagination from '../../../components/ui/Pagination'
+import { formatDateOnly } from '../../../utils/date'
 import { formatBaht } from '../../../utils/format'
-import { ORDER_STATUSES, PAGE_SIZE_OPTIONS, formatDateOnly, toNumber } from '../customerUtils'
+import { toNumber } from '../../../utils/number'
+import { PAGE_SIZE_OPTIONS } from '../customerUtils'
 
 // orders = one page of GET /orders?customer_id= (the page owns the query so the tab can show its count)
 function OrderHistory({ orders, meta, isAdmin, onPageChange, onPageSizeChange }) {
@@ -29,7 +32,6 @@ function OrderHistory({ orders, meta, isAdmin, onPageChange, onPageSizeChange })
           </thead>
           <tbody className="divide-y divide-line bg-white">
             {orders.map((order) => {
-              const status = ORDER_STATUSES[order.status] ?? ORDER_STATUSES.unpaid
               const outstanding = toNumber(order.outstanding)
               return (
                 <tr key={order.id}>
@@ -42,9 +44,7 @@ function OrderHistory({ orders, meta, isAdmin, onPageChange, onPageSizeChange })
                     {formatBaht(outstanding)}
                   </td>
                   <td className="px-4 py-3.5">
-                    <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium whitespace-nowrap ${status.className}`}>
-                      {status.label}
-                    </span>
+                    <OrderStatusBadge status={order.status} />
                   </td>
                 </tr>
               )
