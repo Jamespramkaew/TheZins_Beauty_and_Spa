@@ -48,7 +48,11 @@ func (s *service) Search(ctx context.Context, q SearchCustomersQuery) ([]models.
 	if err != nil {
 		return nil, _package.PageMeta{}, err
 	}
-	customers, total, err := s.repository.Search(ctx, strings.TrimSpace(q.Q), page, pageSize)
+	tier := strings.TrimSpace(q.Tier)
+	if tier != "" && tier != "general" && tier != "vip" {
+		return nil, _package.PageMeta{}, invalid("tier must be general or vip")
+	}
+	customers, total, err := s.repository.Search(ctx, strings.TrimSpace(q.Q), tier, page, pageSize)
 	if err != nil {
 		return nil, _package.PageMeta{}, err
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 type Repository interface {
-	Search(ctx context.Context, q string, page, pageSize int) ([]models.Customer, int64, error)
+	Search(ctx context.Context, q, tier string, page, pageSize int) ([]models.Customer, int64, error)
 	GetByID(ctx context.Context, id string) (*models.Customer, error)
 	Create(ctx context.Context, customer *models.Customer) error
 	Update(ctx context.Context, id string, fields map[string]any) error
@@ -37,9 +37,13 @@ func NewRepository(db *gorm.DB) Repository {
 }
 
 // Search ค้นลูกค้าจาก HN, ชื่อเต็ม หรือเบอร์โทร (ไม่สนตัวพิมพ์เล็กใหญ่) ทีละหน้า
-// q ว่าง = คืนลูกค้าที่สร้างล่าสุด · คืนจำนวนที่ตรงเงื่อนไขทั้งหมด (total) ไว้ทำ meta
-func (r *repository) Search(ctx context.Context, q string, page, pageSize int) ([]models.Customer, int64, error) {
+// q ว่าง = คืนลูกค้าที่สร้างล่าสุด · tier ว่าง = ทุกระดับ (service ตรวจค่าแล้ว)
+// คืนจำนวนที่ตรงเงื่อนไขทั้งหมด (total) ไว้ทำ meta
+func (r *repository) Search(ctx context.Context, q, tier string, page, pageSize int) ([]models.Customer, int64, error) {
 	filtered := r.db.WithContext(ctx).Model(&models.Customer{})
+	if tier != "" {
+		filtered = filtered.Where("tier = ?", tier)
+	}
 	if q != "" {
 		like := "%" + q + "%"
 		filtered = filtered.Where(
