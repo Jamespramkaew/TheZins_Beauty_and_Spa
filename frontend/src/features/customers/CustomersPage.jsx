@@ -3,6 +3,7 @@ import { FiPlus, FiRefreshCw, FiSearch, FiWifiOff, FiX } from 'react-icons/fi'
 import { customerApi } from '../../api/customerApi'
 import Pagination from '../../components/ui/Pagination'
 import { useQuery } from '../../hooks/useQuery'
+import { formatNumber } from '../../utils/format'
 import ChangeTierDialog from './components/ChangeTierDialog'
 import CustomerFormModal from './components/CustomerFormModal'
 import CustomerPanel from './components/CustomerPanel'
@@ -31,6 +32,19 @@ function CustomersPage() {
   const customers = list.data ?? []
   const filtered = search !== '' || tier !== ''
 
+  // Counts beside the tier buttons: only meta.total is needed, so ask for 1 row.
+  // They follow the search box (the number = what you get when you press that button).
+  // general = everyone − vip, so two requests cover all three buttons.
+  const [countsKey, setCountsKey] = useState(0)
+  const countParams = { q: search || undefined, page: 1, page_size: 1 }
+  const allCount = useQuery(customerApi.search, countParams, { refreshKey: countsKey }).meta?.total
+  const vipCount = useQuery(customerApi.search, { ...countParams, tier: 'vip' }, { refreshKey: countsKey }).meta?.total
+  const tierCounts = {
+    '': allCount,
+    vip: vipCount,
+    general: allCount != null && vipCount != null ? allCount - vipCount : undefined,
+  }
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(searchInput.trim())
@@ -44,10 +58,11 @@ function CustomersPage() {
     setPage(1)
   }
 
-  // A saved customer (edit or tier change): refresh the list and the open panel
+  // A saved customer (create, edit or tier change): refresh the list, the counts and the open panel
   const applySaved = (saved) => {
     setSelected((current) => (current?.id === saved.id ? saved : current))
     list.reload()
+    setCountsKey((value) => value + 1)
   }
 
   const clearFilters = () => {
@@ -94,11 +109,20 @@ function CustomersPage() {
               type="button"
               aria-pressed={tier === option.value}
               onClick={() => pickTier(option.value)}
-              className={`h-9 rounded-lg px-3.5 text-sm transition focus-visible:ring-3 focus-visible:ring-chart/20 focus-visible:outline-none ${
+              className={`flex h-9 items-center gap-2 rounded-lg px-3.5 text-sm transition focus-visible:ring-3 focus-visible:ring-chart/20 focus-visible:outline-none ${
                 tier === option.value ? 'bg-white font-semibold text-ink shadow-sm' : 'text-muted hover:text-ink'
               }`}
             >
               {option.label}
+              {tierCounts[option.value] != null && (
+                <span
+                  className={`min-w-6 rounded-full px-1.5 py-0.5 text-center text-xs font-medium ${
+                    tier === option.value ? 'bg-surface-2 text-ink' : 'bg-white/70 text-muted'
+                  }`}
+                >
+                  {formatNumber(tierCounts[option.value])}
+                </span>
+              )}
             </button>
           ))}
         </div>
