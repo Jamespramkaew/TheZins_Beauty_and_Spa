@@ -13,7 +13,7 @@ import {
   formatTime,
   presetRange,
 } from '../stockUtils'
-import { useQuery } from '../useQuery'
+import { useQuery } from '../../../hooks/useQuery'
 import { filterSelectClass } from './styles'
 import { BranchDot, EmptyState, InfoBox, LoadError, NoResults, SegmentedControl, SkeletonRows } from './ui'
 

@@ -4,7 +4,7 @@ import Modal from '../../../components/Modal'
 import { stockApi } from '../../../api/stockApi'
 import { formatNumber } from '../../../utils/format'
 import { CLOSE_REASONS, MAX_PAGE_SIZE, branchColor, daysSince, formatDate } from '../stockUtils'
-import { useQuery } from '../useQuery'
+import { useQuery } from '../../../hooks/useQuery'
 import { filterSelectClass } from './styles'
 import { BranchDot, LoadError, SegmentedControl } from './ui'
 

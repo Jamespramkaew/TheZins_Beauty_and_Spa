@@ -1,12 +1,4 @@
-// Backend error body: { success: false, message, data: [{ error: { type, details } }] }
-export function readApiError(error) {
-  const body = error?.response?.data
-  return {
-    status: error?.response?.status,
-    message: body?.message ?? '',
-    detail: body?.data?.[0]?.error?.details ?? '',
-  }
-}
+import { readApiError } from '../../utils/apiError'
 
 const ITEM_RULES = [
   [/items\[(\d+)\]\.stock_id '.*' not found/, () => 'ไม่พบสินค้านี้ในระบบแล้ว — กด × เพื่อนำออก แล้วเลือกสินค้าใหม่'],

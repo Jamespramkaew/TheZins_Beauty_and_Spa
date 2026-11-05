@@ -14,7 +14,7 @@ import QuantitiesTab from './components/QuantitiesTab'
 import TransferModal from './components/TransferModal'
 import { outlineButtonClass, primaryButtonClass } from './components/styles'
 import { DEFAULT_LOG_FILTERS, DEFAULT_QTY_FILTERS, formatDateTime } from './stockUtils'
-import { useQuery } from './useQuery'
+import { useQuery } from '../../hooks/useQuery'
 
 const TABS = [
   { value: 'quantities', label: 'ยอดคงเหลือ' },

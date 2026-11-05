@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { employeeApi } from '../../api/employeeApi'
 import { stockLogApi } from '../../api/stockLogApi'
 import { fetchAllPages } from './stockUtils'
-import { useQuery } from './useQuery'
+import { useQuery } from '../../hooks/useQuery'
 
 const fetchBranchQuantities = (params) => fetchAllPages(stockLogApi.getQuantities, params)
 
