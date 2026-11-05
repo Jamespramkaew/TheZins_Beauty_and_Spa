@@ -4,6 +4,7 @@ import ComingSoonPage from '../pages/ComingSoonPage'
 import NotFoundPage from '../pages/NotFoundPage'
 import OverviewPage from '../features/overview/OverviewPage'
 import CoursesPage from '../features/courses/CoursesPage'
+import CustomersPage from '../features/customers/CustomersPage'
 import StocksPage from '../features/stocks/StocksPage'
 import LoginPage from '../features/auth/LoginPage'
 import RequireAuth from '../features/auth/RequireAuth'
@@ -26,7 +27,7 @@ export const router = createBrowserRouter([
         handle: { title: 'Overview', showCreateOrder: true },
       },
       { path: 'orders', element: <ComingSoonPage />, handle: { title: 'Orders' } },
-      { path: 'customers', element: <ComingSoonPage />, handle: { title: 'Customers' } },
+      { path: 'customers', element: <CustomersPage />, handle: { title: 'Customers' } },
       { path: 'stocks', element: <StocksPage />, handle: { title: 'Stocks & Stock-Logs' } },
       { path: 'courses', element: <CoursesPage />, handle: { title: 'Courses' } },
       { path: 'employees', element: <ComingSoonPage />, handle: { title: 'Employee' } },
