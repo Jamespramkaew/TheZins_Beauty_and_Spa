@@ -13,6 +13,13 @@ export const TIER_FILTERS = [
   { value: 'general', label: 'ทั่วไป' },
 ]
 
+// value '' = everyone (GET /customers without joined); new/old split at NEW_CUSTOMER_DAYS
+export const JOINED_FILTERS = [
+  { value: '', label: 'ทั้งหมด' },
+  { value: 'new', label: 'ลูกค้าใหม่' },
+  { value: 'old', label: 'ลูกค้าเก่า' },
+]
+
 export const TIERS = {
   vip: { label: 'VIP', className: 'bg-gold-bg text-gold-ink', avatarClassName: 'bg-gold-bg text-gold-ink' },
   general: { label: 'ทั่วไป', className: 'bg-surface-2 text-muted', avatarClassName: 'bg-surface-2 text-muted' },
@@ -21,7 +28,7 @@ export const TIERS = {
 export const tierOf = (tier) => TIERS[tier] ?? TIERS.general
 
 // "ลูกค้าใหม่" = added within the last 7 × 24 hours (counted from created_at, not calendar days).
-// Fixed for now; the planned GET /customers?joined=new|old filter must use the same number.
+// Fixed for now; must match NewCustomerDays in backend/internal/customer/service.go (GET /customers?joined=).
 export const NEW_CUSTOMER_DAYS = 7
 
 export const isNewCustomer = (customer) =>

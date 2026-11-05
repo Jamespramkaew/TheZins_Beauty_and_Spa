@@ -8,12 +8,13 @@ import ChangeTierDialog from './components/ChangeTierDialog'
 import CustomerFormModal from './components/CustomerFormModal'
 import CustomerPanel from './components/CustomerPanel'
 import CustomerTable from './components/CustomerTable'
-import { PAGE_SIZE_OPTIONS, TIER_FILTERS } from './customerUtils'
+import { JOINED_FILTERS, PAGE_SIZE_OPTIONS, TIER_FILTERS } from './customerUtils'
 
 function CustomersPage() {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [tier, setTier] = useState('')
+  const [joined, setJoined] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[1])
   const [form, setForm] = useState(null) // { customer } — customer null = create
@@ -22,28 +23,36 @@ function CustomersPage() {
   const [selected, setSelected] = useState(null)
   const [changingTier, setChangingTier] = useState(null)
 
-  // Empty q / tier are left out (undefined) so the request has no ?q= or ?tier=
+  // Empty q / tier / joined are left out (undefined) so the request has no ?q= / ?tier= / ?joined=
+  const q = search || undefined
   const list = useQuery(customerApi.search, {
-    q: search || undefined,
+    q,
     tier: tier || undefined,
+    joined: joined || undefined,
     page,
     page_size: pageSize,
   })
   const customers = list.data ?? []
-  const filtered = search !== '' || tier !== ''
+  const filtered = search !== '' || tier !== '' || joined !== ''
 
-  // Counts beside the tier buttons: only meta.total is needed, so ask for 1 row.
-  // They follow the search box (the number = what you get when you press that button).
-  // general = everyone − vip, so two requests cover all three buttons.
+  // Counts beside the filter buttons: only meta.total is needed, so ask for 1 row.
+  // Each group's numbers follow the search box AND the other group's choice
+  // (the number = what you get when you press that button). The last button = all − the middle one.
   const [countsKey, setCountsKey] = useState(0)
-  const countParams = { q: search || undefined, page: 1, page_size: 1 }
-  const allCount = useQuery(customerApi.search, countParams, { refreshKey: countsKey }).meta?.total
-  const vipCount = useQuery(customerApi.search, { ...countParams, tier: 'vip' }, { refreshKey: countsKey }).meta?.total
-  const tierCounts = {
-    '': allCount,
-    vip: vipCount,
-    general: allCount != null && vipCount != null ? allCount - vipCount : undefined,
-  }
+  const byJoined = { q, joined: joined || undefined }
+  const byTier = { q, tier: tier || undefined }
+  const tierCounts = splitCounts(
+    'vip',
+    'general',
+    useCustomerTotal(byJoined, countsKey),
+    useCustomerTotal({ ...byJoined, tier: 'vip' }, countsKey),
+  )
+  const joinedCounts = splitCounts(
+    'new',
+    'old',
+    useCustomerTotal(byTier, countsKey),
+    useCustomerTotal({ ...byTier, joined: 'new' }, countsKey),
+  )
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -58,6 +67,11 @@ function CustomersPage() {
     setPage(1)
   }
 
+  const pickJoined = (value) => {
+    setJoined(value)
+    setPage(1)
+  }
+
   // A saved customer (create, edit or tier change): refresh the list, the counts and the open panel
   const applySaved = (saved) => {
     setSelected((current) => (current?.id === saved.id ? saved : current))
@@ -69,6 +83,7 @@ function CustomersPage() {
     setSearchInput('')
     setSearch('')
     setTier('')
+    setJoined('')
     setPage(1)
   }
 
@@ -102,30 +117,8 @@ function CustomersPage() {
           />
         </label>
 
-        <div role="group" aria-label="ระดับสมาชิก" className="flex rounded-[12px] border border-line bg-surface-2 p-1">
-          {TIER_FILTERS.map((option) => (
-            <button
-              key={option.value || 'all'}
-              type="button"
-              aria-pressed={tier === option.value}
-              onClick={() => pickTier(option.value)}
-              className={`flex h-9 items-center gap-2 rounded-lg px-3.5 text-sm transition focus-visible:ring-3 focus-visible:ring-chart/20 focus-visible:outline-none ${
-                tier === option.value ? 'bg-white font-semibold text-ink shadow-sm' : 'text-muted hover:text-ink'
-              }`}
-            >
-              {option.label}
-              {tierCounts[option.value] != null && (
-                <span
-                  className={`min-w-6 rounded-full px-1.5 py-0.5 text-center text-xs font-medium ${
-                    tier === option.value ? 'bg-surface-2 text-ink' : 'bg-white/70 text-muted'
-                  }`}
-                >
-                  {formatNumber(tierCounts[option.value])}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <FilterGroup label="ระดับสมาชิก" options={TIER_FILTERS} value={tier} counts={tierCounts} onChange={pickTier} />
+        <FilterGroup label="ประเภทลูกค้า" options={JOINED_FILTERS} value={joined} counts={joinedCounts} onChange={pickJoined} />
 
         {filtered && (
           <button
@@ -210,6 +203,49 @@ function CustomersPage() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// meta.total of GET /customers for these filters (1 row requested — only the count is used)
+function useCustomerTotal(params, refreshKey) {
+  return useQuery(customerApi.search, { ...params, page: 1, page_size: 1 }, { refreshKey }).meta?.total
+}
+
+// { '': all, [first]: firstCount, [second]: all − firstCount } — undefined until both have loaded
+function splitCounts(first, second, all, firstCount) {
+  return {
+    '': all,
+    [first]: firstCount,
+    [second]: all != null && firstCount != null ? all - firstCount : undefined,
+  }
+}
+
+function FilterGroup({ label, options, value, counts, onChange }) {
+  return (
+    <div role="group" aria-label={label} className="flex rounded-[12px] border border-line bg-surface-2 p-1">
+      {options.map((option) => (
+        <button
+          key={option.value || 'all'}
+          type="button"
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={`flex h-9 items-center gap-2 rounded-lg px-3.5 text-sm whitespace-nowrap transition focus-visible:ring-3 focus-visible:ring-chart/20 focus-visible:outline-none ${
+            value === option.value ? 'bg-white font-semibold text-ink shadow-sm' : 'text-muted hover:text-ink'
+          }`}
+        >
+          {option.label}
+          {counts[option.value] != null && (
+            <span
+              className={`min-w-6 rounded-full px-1.5 py-0.5 text-center text-xs font-medium ${
+                value === option.value ? 'bg-surface-2 text-ink' : 'bg-white/70 text-muted'
+              }`}
+            >
+              {formatNumber(counts[option.value])}
+            </span>
+          )}
+        </button>
+      ))}
     </div>
   )
 }
