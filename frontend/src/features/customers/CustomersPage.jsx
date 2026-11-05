@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { FiRefreshCw, FiSearch, FiWifiOff, FiX } from 'react-icons/fi'
+import { FiPlus, FiRefreshCw, FiSearch, FiWifiOff, FiX } from 'react-icons/fi'
 import { customerApi } from '../../api/customerApi'
 import Pagination from '../../components/ui/Pagination'
 import { useQuery } from '../../hooks/useQuery'
+import CustomerFormModal from './components/CustomerFormModal'
 import CustomerTable from './components/CustomerTable'
 import { PAGE_SIZE_OPTIONS, TIER_FILTERS } from './customerUtils'
 
@@ -12,6 +13,7 @@ function CustomersPage() {
   const [tier, setTier] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[1])
+  const [form, setForm] = useState(null) // { customer } — customer null = create
 
   // Empty q / tier are left out (undefined) so the request has no ?q= or ?tier=
   const list = useQuery(customerApi.search, {
@@ -45,9 +47,19 @@ function CustomersPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
-      <div>
-        <h1 className="text-[28px] font-bold tracking-tight text-ink">ลูกค้า</h1>
-        <p className="mt-1 text-sm text-muted">ค้นหาลูกค้าจากชื่อ เลข HN หรือเบอร์โทร ใช้ร่วมกันทุกสาขา</p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-[28px] font-bold tracking-tight text-ink">ลูกค้า</h1>
+          <p className="mt-1 text-sm text-muted">ค้นหาลูกค้าจากชื่อ เลข HN หรือเบอร์โทร ใช้ร่วมกันทุกสาขา</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setForm({ customer: null })}
+          className="flex h-11 items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#4d1621]"
+        >
+          <FiPlus className="size-4" />
+          เพิ่มลูกค้า
+        </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -102,7 +114,7 @@ function CustomersPage() {
             detail={filtered ? 'ลองค้นหาด้วยเบอร์โทรหรือเลข HN หรือล้างตัวกรอง' : undefined}
           />
         ) : (
-          <CustomerTable customers={customers} />
+          <CustomerTable customers={customers} onEdit={(customer) => setForm({ customer })} />
         )}
       </section>
 
@@ -115,6 +127,17 @@ function CustomersPage() {
           onPageSizeChange={(size) => {
             setPageSize(size)
             setPage(1)
+          }}
+        />
+      )}
+
+      {form && (
+        <CustomerFormModal
+          customer={form.customer}
+          onClose={() => setForm(null)}
+          onSaved={() => {
+            setForm(null)
+            list.reload()
           }}
         />
       )}
