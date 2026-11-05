@@ -1,4 +1,4 @@
-import Toggle from './Toggle'
+import Toggle from '../../../components/ui/Toggle'
 
 // Admin: switch (PATCH is_active) · branch account: read-only pill
 function CourseStatus({ course, canManage, pending, onToggle }) {

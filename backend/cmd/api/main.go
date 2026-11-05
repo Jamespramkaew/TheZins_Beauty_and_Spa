@@ -162,6 +162,10 @@ func setupRoute(app *fiber.App, c *container.Container) {
 	// Register Course
 	c.CourseHandler.RegisterRoutes(api)
 
+	// Register Branch / Employee (อ่านอย่างเดียว ใช้ทำตัวเลือกในฟอร์มสต็อก)
+	c.BranchHandler.RegisterRoutes(api)
+	c.EmployeeHandler.RegisterRoutes(api)
+
 	// 404 Handler
 	app.Use(func(c fiber.Ctx) error {
 		return _package.SendJSON(c, fiber.StatusNotFound,

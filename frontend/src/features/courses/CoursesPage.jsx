@@ -9,7 +9,7 @@ import CourseDetailModal from './components/CourseDetailModal'
 import CourseFormModal from './components/CourseFormModal'
 import CourseTable from './components/CourseTable'
 import DeleteCourseDialog from './components/DeleteCourseDialog'
-import Pagination from './components/Pagination'
+import Pagination from '../../components/ui/Pagination'
 import { DEFAULT_CATEGORIES, PAGE_SIZE_OPTIONS } from './courseUtils'
 import { useCourses } from './useCourses'
 

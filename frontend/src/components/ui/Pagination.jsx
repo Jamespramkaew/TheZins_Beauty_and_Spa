@@ -1,5 +1,5 @@
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi'
-import { formatNumber } from '../../../utils/format'
+import { formatNumber } from '../../utils/format'
 
 const WINDOW = 5
 
