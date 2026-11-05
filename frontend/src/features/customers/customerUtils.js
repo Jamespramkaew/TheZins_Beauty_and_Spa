@@ -6,18 +6,13 @@ dayjs.extend(buddhistEra)
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
-// value '' = every tier (GET /customers without tier)
-export const TIER_FILTERS = [
-  { value: '', label: 'ทุกระดับ' },
-  { value: 'vip', label: 'VIP' },
-  { value: 'general', label: 'ทั่วไป' },
-]
-
-// value '' = everyone (GET /customers without joined); new/old split at NEW_CUSTOMER_DAYS
-export const JOINED_FILTERS = [
-  { value: '', label: 'ทั้งหมด' },
-  { value: 'new', label: 'ลูกค้าใหม่' },
-  { value: 'old', label: 'ลูกค้าเก่า' },
+// One row of filter buttons. Exactly one is active; `params` is what it adds to GET /customers.
+// "ลูกค้าใหม่" covers every tier (added within NEW_CUSTOMER_DAYS).
+export const CUSTOMER_FILTERS = [
+  { value: '', label: 'ทุกระดับ', params: {} },
+  { value: 'vip', label: 'VIP', params: { tier: 'vip' } },
+  { value: 'general', label: 'ทั่วไป', params: { tier: 'general' } },
+  { value: 'new', label: 'ลูกค้าใหม่', params: { joined: 'new' } },
 ]
 
 export const TIERS = {

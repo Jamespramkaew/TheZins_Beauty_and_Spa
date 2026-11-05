@@ -8,13 +8,12 @@ import ChangeTierDialog from './components/ChangeTierDialog'
 import CustomerFormModal from './components/CustomerFormModal'
 import CustomerPanel from './components/CustomerPanel'
 import CustomerTable from './components/CustomerTable'
-import { JOINED_FILTERS, PAGE_SIZE_OPTIONS, TIER_FILTERS } from './customerUtils'
+import { CUSTOMER_FILTERS, PAGE_SIZE_OPTIONS } from './customerUtils'
 
 function CustomersPage() {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
-  const [tier, setTier] = useState('')
-  const [joined, setJoined] = useState('')
+  const [filter, setFilter] = useState('') // a CUSTOMER_FILTERS value
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[1])
   const [form, setForm] = useState(null) // { customer } — customer null = create
@@ -23,36 +22,25 @@ function CustomersPage() {
   const [selected, setSelected] = useState(null)
   const [changingTier, setChangingTier] = useState(null)
 
-  // Empty q / tier / joined are left out (undefined) so the request has no ?q= / ?tier= / ?joined=
+  // Empty q is left out (undefined) so the request has no ?q=
   const q = search || undefined
-  const list = useQuery(customerApi.search, {
-    q,
-    tier: tier || undefined,
-    joined: joined || undefined,
-    page,
-    page_size: pageSize,
-  })
+  const filterParams = CUSTOMER_FILTERS.find((option) => option.value === filter).params
+  const list = useQuery(customerApi.search, { q, ...filterParams, page, page_size: pageSize })
   const customers = list.data ?? []
-  const filtered = search !== '' || tier !== '' || joined !== ''
+  const filtered = search !== '' || filter !== ''
 
-  // Counts beside the filter buttons: only meta.total is needed, so ask for 1 row.
-  // Each group's numbers follow the search box AND the other group's choice
-  // (the number = what you get when you press that button). The last button = all − the middle one.
+  // Counts beside the buttons follow the search box (the number = what you get when you press it).
+  // Only meta.total is needed, so each asks for 1 row. ทั่วไป = ทุกระดับ − VIP.
   const [countsKey, setCountsKey] = useState(0)
-  const byJoined = { q, joined: joined || undefined }
-  const byTier = { q, tier: tier || undefined }
-  const tierCounts = splitCounts(
-    'vip',
-    'general',
-    useCustomerTotal(byJoined, countsKey),
-    useCustomerTotal({ ...byJoined, tier: 'vip' }, countsKey),
-  )
-  const joinedCounts = splitCounts(
-    'new',
-    'old',
-    useCustomerTotal(byTier, countsKey),
-    useCustomerTotal({ ...byTier, joined: 'new' }, countsKey),
-  )
+  const allCount = useCustomerTotal({ q }, countsKey)
+  const vipCount = useCustomerTotal({ q, tier: 'vip' }, countsKey)
+  const newCount = useCustomerTotal({ q, joined: 'new' }, countsKey)
+  const counts = {
+    '': allCount,
+    vip: vipCount,
+    general: allCount != null && vipCount != null ? allCount - vipCount : undefined,
+    new: newCount,
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -62,13 +50,8 @@ function CustomersPage() {
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  const pickTier = (value) => {
-    setTier(value)
-    setPage(1)
-  }
-
-  const pickJoined = (value) => {
-    setJoined(value)
+  const pickFilter = (value) => {
+    setFilter(value)
     setPage(1)
   }
 
@@ -82,8 +65,7 @@ function CustomersPage() {
   const clearFilters = () => {
     setSearchInput('')
     setSearch('')
-    setTier('')
-    setJoined('')
+    setFilter('')
     setPage(1)
   }
 
@@ -117,8 +99,7 @@ function CustomersPage() {
           />
         </label>
 
-        <FilterGroup label="ระดับสมาชิก" options={TIER_FILTERS} value={tier} counts={tierCounts} onChange={pickTier} />
-        <FilterGroup label="ประเภทลูกค้า" options={JOINED_FILTERS} value={joined} counts={joinedCounts} onChange={pickJoined} />
+        <FilterGroup label="กรองลูกค้า" options={CUSTOMER_FILTERS} value={filter} counts={counts} onChange={pickFilter} />
 
         {filtered && (
           <button
@@ -210,15 +191,6 @@ function CustomersPage() {
 // meta.total of GET /customers for these filters (1 row requested — only the count is used)
 function useCustomerTotal(params, refreshKey) {
   return useQuery(customerApi.search, { ...params, page: 1, page_size: 1 }, { refreshKey }).meta?.total
-}
-
-// { '': all, [first]: firstCount, [second]: all − firstCount } — undefined until both have loaded
-function splitCounts(first, second, all, firstCount) {
-  return {
-    '': all,
-    [first]: firstCount,
-    [second]: all != null && firstCount != null ? all - firstCount : undefined,
-  }
 }
 
 function FilterGroup({ label, options, value, counts, onChange }) {
