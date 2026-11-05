@@ -1,8 +1,9 @@
-import { FiEdit2 } from 'react-icons/fi'
+import { FiChevronRight, FiEdit2 } from 'react-icons/fi'
 import { formatDate, fullName, initialOf, tierOf } from '../customerUtils'
 import TierBadge from './TierBadge'
 
-function CustomerTable({ customers, onEdit }) {
+// selectedId = the customer shown in the side panel (highlighted row)
+function CustomerTable({ customers, selectedId, onSelect, onEdit }) {
   return (
     <div className="overflow-x-auto rounded-card border border-line">
       <table className="w-full min-w-[720px] text-sm">
@@ -17,7 +18,10 @@ function CustomerTable({ customers, onEdit }) {
         </thead>
         <tbody className="divide-y divide-line bg-white">
           {customers.map((customer) => (
-            <tr key={customer.id}>
+            <tr
+              key={customer.id}
+              className={customer.id === selectedId ? 'bg-gold-bg/40 shadow-[inset_3px_0_0_var(--color-gold)]' : ''}
+            >
               <td className="px-4 py-3.5">
                 <div className="flex items-center gap-3">
                   <span
@@ -29,7 +33,14 @@ function CustomerTable({ customers, onEdit }) {
                     {initialOf(customer)}
                   </span>
                   <div className="min-w-0">
-                    <p className="font-semibold text-ink [overflow-wrap:anywhere]">{fullName(customer)}</p>
+                    <button
+                      type="button"
+                      onClick={() => onSelect(customer)}
+                      aria-expanded={customer.id === selectedId}
+                      className="rounded-sm text-left font-semibold text-chart [overflow-wrap:anywhere] underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-chart/20 focus-visible:outline-none"
+                    >
+                      {fullName(customer)}
+                    </button>
                     <div className="mt-1">
                       <TierBadge tier={customer.tier} />
                     </div>
@@ -40,7 +51,7 @@ function CustomerTable({ customers, onEdit }) {
               <td className="px-3 py-3.5 whitespace-nowrap">{customer.tel || '–'}</td>
               <td className="px-3 py-3.5 whitespace-nowrap text-muted">{formatDate(customer.created_at)}</td>
               <td className="px-4 py-3.5">
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => onEdit(customer)}
@@ -48,6 +59,14 @@ function CustomerTable({ customers, onEdit }) {
                     className="flex size-9 items-center justify-center rounded-control border border-line-strong bg-white text-muted transition hover:bg-surface-2 hover:text-ink"
                   >
                     <FiEdit2 className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(customer)}
+                    aria-label={`ดูรายละเอียด ${fullName(customer)}`}
+                    className="flex size-9 items-center justify-center rounded-control border border-line-strong bg-white text-muted transition hover:bg-surface-2 hover:text-ink"
+                  >
+                    <FiChevronRight className="size-4" />
                   </button>
                 </div>
               </td>

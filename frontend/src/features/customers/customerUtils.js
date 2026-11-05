@@ -25,3 +25,6 @@ export const fullName = (customer) => [customer.fname, customer.lname].filter(Bo
 export const initialOf = (customer) => customer.fname?.trim().charAt(0) || '?'
 
 export const formatDate = (value) => (value ? dayjs(value).locale('th').format('D MMM BBBB') : '–')
+
+// Show only the last 4 digits on screen; the full number stays in the edit form
+export const maskCitizenId = (value) => (value ? `•••••••••${value.slice(-4)}` : '')

@@ -3,7 +3,9 @@ import { FiPlus, FiRefreshCw, FiSearch, FiWifiOff, FiX } from 'react-icons/fi'
 import { customerApi } from '../../api/customerApi'
 import Pagination from '../../components/ui/Pagination'
 import { useQuery } from '../../hooks/useQuery'
+import ChangeTierDialog from './components/ChangeTierDialog'
 import CustomerFormModal from './components/CustomerFormModal'
+import CustomerPanel from './components/CustomerPanel'
 import CustomerTable from './components/CustomerTable'
 import { PAGE_SIZE_OPTIONS, TIER_FILTERS } from './customerUtils'
 
@@ -14,6 +16,10 @@ function CustomersPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[1])
   const [form, setForm] = useState(null) // { customer } — customer null = create
+  // Kept as its own copy (not looked up in the list) so the panel stays open
+  // even when the customer drops out of the current page or filter after a change
+  const [selected, setSelected] = useState(null)
+  const [changingTier, setChangingTier] = useState(null)
 
   // Empty q / tier are left out (undefined) so the request has no ?q= or ?tier=
   const list = useQuery(customerApi.search, {
@@ -36,6 +42,12 @@ function CustomersPage() {
   const pickTier = (value) => {
     setTier(value)
     setPage(1)
+  }
+
+  // A saved customer (edit or tier change): refresh the list and the open panel
+  const applySaved = (saved) => {
+    setSelected((current) => (current?.id === saved.id ? saved : current))
+    list.reload()
   }
 
   const clearFilters = () => {
@@ -103,41 +115,74 @@ function CustomersPage() {
         )}
       </div>
 
-      <section aria-busy={list.loading} className={`transition-opacity ${list.loading && list.loaded ? 'opacity-60' : ''}`}>
-        {list.error ? (
-          <LoadError onRetry={list.reload} />
-        ) : !list.loaded ? (
-          <EmptyState title="กำลังโหลดรายชื่อลูกค้า…" />
-        ) : customers.length === 0 ? (
-          <EmptyState
-            title={filtered ? 'ไม่พบลูกค้าที่ตรงกับตัวกรอง' : 'ยังไม่มีลูกค้า'}
-            detail={filtered ? 'ลองค้นหาด้วยเบอร์โทรหรือเลข HN หรือล้างตัวกรอง' : undefined}
-          />
-        ) : (
-          <CustomerTable customers={customers} onEdit={(customer) => setForm({ customer })} />
+      <div className={`grid items-start gap-6 ${selected ? 'xl:grid-cols-[minmax(0,1fr)_360px]' : ''}`}>
+        {/* Below xl the panel comes first so it isn't hidden under a long table */}
+        {selected && (
+          <div className="xl:order-last">
+            <CustomerPanel
+              key={selected.id}
+              customer={selected}
+              onClose={() => setSelected(null)}
+              onEdit={(customer) => setForm({ customer })}
+              onChangeTier={setChangingTier}
+            />
+          </div>
         )}
-      </section>
 
-      {list.meta && list.meta.total > 0 && !list.error && (
-        <Pagination
-          meta={list.meta}
-          unit="คน"
-          pageSizeOptions={PAGE_SIZE_OPTIONS}
-          onPageChange={setPage}
-          onPageSizeChange={(size) => {
-            setPageSize(size)
-            setPage(1)
-          }}
-        />
-      )}
+        <div className="min-w-0 space-y-6">
+          <section aria-busy={list.loading} className={`transition-opacity ${list.loading && list.loaded ? 'opacity-60' : ''}`}>
+            {list.error ? (
+              <LoadError onRetry={list.reload} />
+            ) : !list.loaded ? (
+              <EmptyState title="กำลังโหลดรายชื่อลูกค้า…" />
+            ) : customers.length === 0 ? (
+              <EmptyState
+                title={filtered ? 'ไม่พบลูกค้าที่ตรงกับตัวกรอง' : 'ยังไม่มีลูกค้า'}
+                detail={filtered ? 'ลองค้นหาด้วยเบอร์โทรหรือเลข HN หรือล้างตัวกรอง' : undefined}
+              />
+            ) : (
+              <CustomerTable
+                customers={customers}
+                selectedId={selected?.id}
+                onSelect={setSelected}
+                onEdit={(customer) => setForm({ customer })}
+              />
+            )}
+          </section>
+
+          {list.meta && list.meta.total > 0 && !list.error && (
+            <Pagination
+              meta={list.meta}
+              unit="คน"
+              pageSizeOptions={PAGE_SIZE_OPTIONS}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size)
+                setPage(1)
+              }}
+            />
+          )}
+        </div>
+      </div>
 
       {form && (
         <CustomerFormModal
           customer={form.customer}
           onClose={() => setForm(null)}
-          onSaved={() => {
+          onSaved={(saved) => {
             setForm(null)
-            list.reload()
+            applySaved(saved)
+          }}
+        />
+      )}
+
+      {changingTier && (
+        <ChangeTierDialog
+          customer={changingTier}
+          onClose={() => setChangingTier(null)}
+          onChanged={(saved) => {
+            setChangingTier(null)
+            applySaved(saved)
           }}
         />
       )}
