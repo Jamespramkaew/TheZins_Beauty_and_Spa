@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import OrderStatusBadge from '../../../components/OrderStatusBadge'
 import Pagination from '../../../components/ui/Pagination'
 import { formatDateOnly } from '../../../utils/date'
@@ -35,7 +36,11 @@ function OrderHistory({ orders, meta, isAdmin, onPageChange, onPageSizeChange })
               const outstanding = toNumber(order.outstanding)
               return (
                 <tr key={order.id}>
-                  <td className="px-4 py-3.5 font-semibold whitespace-nowrap text-ink">{order.order_no}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap">
+                    <Link to={`/orders/${order.id}`} className="font-semibold text-chart underline-offset-4 hover:underline">
+                      {order.order_no}
+                    </Link>
+                  </td>
                   <td className="px-3 py-3.5 whitespace-nowrap">{formatDateOnly(order.order_date)}</td>
                   <td className="px-3 py-3.5 whitespace-nowrap text-muted">{order.branch_code}</td>
                   <td className="px-3 py-3.5 text-right font-semibold whitespace-nowrap">{formatBaht(toNumber(order.total))}</td>
