@@ -79,7 +79,8 @@ function MovementModal({ isAdmin, branches, ownBranch, stocks, preset, onClose, 
       type: values.type,
       stock_id: values.stock_id,
       employee_id: values.employee_id,
-      qty: sign * Number(values.qty),
+      // Fixed-sign types: server applies the sign and requires qty > 0. Only adjust sends a signed qty.
+      qty: movement.sign === 0 ? sign * Number(values.qty) : Number(values.qty),
       note: values.note.trim(),
       ...(isAdmin && { branch_id: values.branch_id }),
     }
