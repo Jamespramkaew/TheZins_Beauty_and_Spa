@@ -20,6 +20,13 @@ export const TIERS = {
 
 export const tierOf = (tier) => TIERS[tier] ?? TIERS.general
 
+// "ลูกค้าใหม่" = added within the last 7 × 24 hours (counted from created_at, not calendar days).
+// Fixed for now; the planned GET /customers?joined=new|old filter must use the same number.
+export const NEW_CUSTOMER_DAYS = 7
+
+export const isNewCustomer = (customer) =>
+  Boolean(customer.created_at) && Date.now() - new Date(customer.created_at).getTime() < NEW_CUSTOMER_DAYS * 24 * 60 * 60 * 1000
+
 export const fullName = (customer) => [customer.fname, customer.lname].filter(Boolean).join(' ')
 
 export const initialOf = (customer) => customer.fname?.trim().charAt(0) || '?'

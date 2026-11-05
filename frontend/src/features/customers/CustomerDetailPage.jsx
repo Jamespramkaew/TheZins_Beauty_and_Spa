@@ -9,6 +9,7 @@ import { readApiError } from '../../utils/apiError'
 import { formatNumber } from '../../utils/format'
 import ChangeTierDialog from './components/ChangeTierDialog'
 import CustomerFormModal from './components/CustomerFormModal'
+import NewCustomerBadge from './components/NewCustomerBadge'
 import OrderHistory from './components/OrderHistory'
 import TierBadge from './components/TierBadge'
 import TierHistory from './components/TierHistory'
@@ -93,6 +94,7 @@ function CustomerDetailPage() {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-[26px] font-bold tracking-tight text-ink [overflow-wrap:anywhere]">{fullName(customer)}</h1>
               <TierBadge tier={customer.tier} />
+              <NewCustomerBadge customer={customer} />
             </div>
             <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
               <span>{customer.hn_no}</span>

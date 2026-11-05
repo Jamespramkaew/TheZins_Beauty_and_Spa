@@ -1,6 +1,7 @@
 import { FiArrowRight, FiEdit2, FiStar, FiX } from 'react-icons/fi'
 import { Link } from 'react-router-dom'
 import { formatDate, formatDateOnly, fullName, initialOf, maskCitizenId, tierOf } from '../customerUtils'
+import NewCustomerBadge from './NewCustomerBadge'
 import TierBadge from './TierBadge'
 
 function CustomerPanel({ customer, onClose, onEdit, onChangeTier }) {
@@ -26,8 +27,9 @@ function CustomerPanel({ customer, onClose, onEdit, onChangeTier }) {
           {initialOf(customer)}
         </span>
         <p className="mt-3 text-lg font-bold text-ink [overflow-wrap:anywhere]">{name}</p>
-        <div className="mt-1.5">
+        <div className="mt-1.5 flex flex-wrap justify-center gap-1.5">
           <TierBadge tier={customer.tier} />
+          <NewCustomerBadge customer={customer} />
         </div>
       </div>
 

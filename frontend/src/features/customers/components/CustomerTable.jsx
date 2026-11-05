@@ -1,5 +1,6 @@
 import { FiChevronRight, FiEdit2 } from 'react-icons/fi'
 import { formatDate, fullName, initialOf, tierOf } from '../customerUtils'
+import NewCustomerBadge from './NewCustomerBadge'
 import TierBadge from './TierBadge'
 
 // selectedId = the customer shown in the side panel (highlighted row)
@@ -41,8 +42,9 @@ function CustomerTable({ customers, selectedId, onSelect, onEdit }) {
                     >
                       {fullName(customer)}
                     </button>
-                    <div className="mt-1">
+                    <div className="mt-1 flex flex-wrap gap-1.5">
                       <TierBadge tier={customer.tier} />
+                      <NewCustomerBadge customer={customer} />
                     </div>
                   </div>
                 </div>
