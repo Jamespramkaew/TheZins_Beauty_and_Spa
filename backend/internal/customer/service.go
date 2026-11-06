@@ -21,6 +21,10 @@ var (
 	ErrDuplicateHN = _package.NewAppError("HN number already exists", _package.CodeConflict, "hn_no already exists") // 409
 )
 
+// NewCustomerDays = ลูกค้าที่เพิ่มเข้าระบบไม่เกินกี่วัน (นับ 24 ชม. ต่อวันจาก created_at) ถือเป็นลูกค้าใหม่
+// ต้องตรงกับ NEW_CUSTOMER_DAYS ใน frontend/src/features/customers/customerUtils.js (ป้าย "ลูกค้าใหม่")
+const NewCustomerDays = 7
+
 var (
 	uuidPattern      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	citizenIDPattern = regexp.MustCompile(`^[0-9]{13}$`)
@@ -52,7 +56,19 @@ func (s *service) Search(ctx context.Context, q SearchCustomersQuery) ([]models.
 	if tier != "" && tier != "general" && tier != "vip" {
 		return nil, _package.PageMeta{}, invalid("tier must be general or vip")
 	}
-	customers, total, err := s.repository.Search(ctx, strings.TrimSpace(q.Q), tier, page, pageSize)
+	joined := strings.TrimSpace(q.Joined)
+	if joined != "" && joined != "new" && joined != "old" {
+		return nil, _package.PageMeta{}, invalid("joined must be new or old")
+	}
+
+	customers, total, err := s.repository.Search(ctx, SearchFilter{
+		Q:        strings.TrimSpace(q.Q),
+		Tier:     tier,
+		Joined:   joined,
+		NewSince: time.Now().Add(-NewCustomerDays * 24 * time.Hour),
+		Page:     page,
+		PageSize: pageSize,
+	})
 	if err != nil {
 		return nil, _package.PageMeta{}, err
 	}

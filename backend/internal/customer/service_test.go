@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"backend/internal/models"
 	"backend/package"
@@ -16,12 +17,11 @@ import (
 type fakeRepo struct {
 	Repository
 	called bool
-	q      string
-	tier   string
+	got    SearchFilter
 }
 
-func (f *fakeRepo) Search(_ context.Context, q, tier string, _, _ int) ([]models.Customer, int64, error) {
-	f.called, f.q, f.tier = true, q, tier
+func (f *fakeRepo) Search(_ context.Context, filter SearchFilter) ([]models.Customer, int64, error) {
+	f.called, f.got = true, filter
 	return []models.Customer{}, 0, nil
 }
 
@@ -30,8 +30,8 @@ func TestSearch_PassesTrimmedTierToRepository(t *testing.T) {
 		repo := &fakeRepo{}
 		_, _, err := NewService(repo).Search(context.Background(), SearchCustomersQuery{Q: " สม ", Tier: tc.in})
 		require.NoError(t, err, "tier %q", tc.in)
-		assert.Equal(t, tc.want, repo.tier, "tier %q", tc.in)
-		assert.Equal(t, "สม", repo.q)
+		assert.Equal(t, tc.want, repo.got.Tier, "tier %q", tc.in)
+		assert.Equal(t, "สม", repo.got.Q)
 	}
 }
 
@@ -46,5 +46,34 @@ func TestSearch_RejectsUnknownTier(t *testing.T) {
 		assert.Equal(t, _package.CodeValidation, appErr.Code)
 		assert.Equal(t, "tier must be general or vip", appErr.Detail)
 		assert.False(t, repo.called, "tier %q ไม่ควรถึง repository", tier)
+	}
+}
+
+// joined ส่งต่อพร้อมเส้นแบ่ง = ตอนนี้ − NewCustomerDays วัน
+func TestSearch_PassesJoinedAndNewSince(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{{"new", "new"}, {" old ", "old"}, {"", ""}} {
+		repo := &fakeRepo{}
+		before := time.Now()
+		_, _, err := NewService(repo).Search(context.Background(), SearchCustomersQuery{Joined: tc.in})
+		after := time.Now()
+		require.NoError(t, err, "joined %q", tc.in)
+		assert.Equal(t, tc.want, repo.got.Joined, "joined %q", tc.in)
+
+		window := NewCustomerDays * 24 * time.Hour
+		assert.False(t, repo.got.NewSince.Before(before.Add(-window)), "NewSince ต้องไม่เก่ากว่า %d วัน", NewCustomerDays)
+		assert.False(t, repo.got.NewSince.After(after.Add(-window)), "NewSince ต้องไม่ใหม่กว่า %d วัน", NewCustomerDays)
+	}
+}
+
+func TestSearch_RejectsUnknownJoined(t *testing.T) {
+	for _, joined := range []string{"recent", "NEW", "true"} {
+		repo := &fakeRepo{}
+		_, _, err := NewService(repo).Search(context.Background(), SearchCustomersQuery{Joined: joined})
+
+		var appErr *_package.AppError
+		require.True(t, errors.As(err, &appErr), "joined %q", joined)
+		assert.Equal(t, _package.CodeValidation, appErr.Code)
+		assert.Equal(t, "joined must be new or old", appErr.Detail)
+		assert.False(t, repo.called, "joined %q ไม่ควรถึง repository", joined)
 	}
 }

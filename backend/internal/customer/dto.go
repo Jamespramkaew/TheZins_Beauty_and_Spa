@@ -32,6 +32,7 @@ type ChangeTier struct {
 type SearchCustomersQuery struct {
 	Q        string // ค้น HN, ชื่อเต็ม หรือเบอร์โทร ว่าง = ลูกค้าที่สร้างล่าสุด
 	Tier     string // general หรือ vip ว่าง = ทุกระดับ
+	Joined   string // new (เพิ่มไม่เกิน NewCustomerDays วัน) หรือ old ว่าง = ทุกคน
 	Page     string // ว่าง = 1
 	PageSize string // ว่าง = 20 สูงสุด 100
 }

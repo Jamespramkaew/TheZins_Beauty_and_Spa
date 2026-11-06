@@ -1,4 +1,4 @@
-import { readApiError } from '../courses/courseErrors'
+import { readApiError } from '../../utils/apiError'
 
 // Backend detail (English) → [{ field, message }] for react-hook-form setError.
 // Empty array = no field to point at, so the caller shows a generic banner.

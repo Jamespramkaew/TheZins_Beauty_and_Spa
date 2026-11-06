@@ -29,11 +29,12 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	customers.Get("/:id/tier-changes", h.ListTierChanges)
 }
 
-// Search GET /api/customers?q=&tier=&page=&page_size=
+// Search GET /api/customers?q=&tier=&joined=&page=&page_size=
 func (h *Handler) Search(c fiber.Ctx) error {
 	q := SearchCustomersQuery{
 		Q:        c.Query("q"),
 		Tier:     c.Query("tier"),
+		Joined:   c.Query("joined"),
 		Page:     c.Query("page"),
 		PageSize: c.Query("page_size"),
 	}
