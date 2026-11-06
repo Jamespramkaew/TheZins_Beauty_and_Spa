@@ -1,5 +1,6 @@
 import { FiChevronRight, FiEdit2 } from 'react-icons/fi'
-import { formatDate, fullName, initialOf, tierOf } from '../customerUtils'
+import { formatDate } from '../../../utils/date'
+import { fullName, initialOf, tierOf } from '../customerUtils'
 import NewCustomerBadge from './NewCustomerBadge'
 import TierBadge from './TierBadge'
 

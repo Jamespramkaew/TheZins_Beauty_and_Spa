@@ -1,9 +1,3 @@
-import dayjs from 'dayjs'
-import buddhistEra from 'dayjs/plugin/buddhistEra'
-import 'dayjs/locale/th'
-
-dayjs.extend(buddhistEra)
-
 export const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
 // One row of filter buttons. Exactly one is active; `params` is what it adds to GET /customers.
@@ -32,26 +26,6 @@ export const isNewCustomer = (customer) =>
 export const fullName = (customer) => [customer.fname, customer.lname].filter(Boolean).join(' ')
 
 export const initialOf = (customer) => customer.fname?.trim().charAt(0) || '?'
-
-export const formatDate = (value) => (value ? dayjs(value).locale('th').format('D MMM BBBB') : '–')
-
-export const formatDateTime = (value) => (value ? dayjs(value).locale('th').format('D MMM BBBB, HH:mm') : '–')
-
-// Date-only columns (b_day, order_date) come back at UTC midnight — keep the YYYY-MM-DD part
-// so no timezone can shift the day
-export const formatDateOnly = (value) => (value ? formatDate(value.slice(0, 10)) : '–')
-
-// Money comes from the API as decimal strings
-export const toNumber = (value) => {
-  const number = Number(value)
-  return Number.isFinite(number) ? number : 0
-}
-
-export const ORDER_STATUSES = {
-  paid: { label: 'ชำระครบ', className: 'bg-success-bg text-success' },
-  partial: { label: 'ชำระบางส่วน', className: 'bg-warn-bg text-warn' },
-  unpaid: { label: 'ยังไม่ชำระ', className: 'bg-danger-bg text-danger' },
-}
 
 // Show only the last 4 digits on screen; the full number stays in the edit form
 export const maskCitizenId = (value) => (value ? `•••••••••${value.slice(-4)}` : '')

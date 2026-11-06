@@ -71,7 +71,7 @@ function Topbar({ onOpenMobileMenu }) {
         </button>
         {handle.showCreateOrder && (
           <Link
-            to="/orders"
+            to="/sell"
             className="flex h-10 items-center gap-2 rounded-control bg-primary px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#4d1621]"
           >
             <LuPlus className="size-4" />

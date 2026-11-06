@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { FiPlus, FiRefreshCw, FiSearch, FiWifiOff, FiX } from 'react-icons/fi'
 import { customerApi } from '../../api/customerApi'
+import FilterGroup from '../../components/ui/FilterGroup'
 import Pagination from '../../components/ui/Pagination'
 import { useQuery } from '../../hooks/useQuery'
-import { formatNumber } from '../../utils/format'
 import ChangeTierDialog from './components/ChangeTierDialog'
 import CustomerFormModal from './components/CustomerFormModal'
 import CustomerPanel from './components/CustomerPanel'
@@ -191,35 +191,6 @@ function CustomersPage() {
 // meta.total of GET /customers for these filters (1 row requested — only the count is used)
 function useCustomerTotal(params, refreshKey) {
   return useQuery(customerApi.search, { ...params, page: 1, page_size: 1 }, { refreshKey }).meta?.total
-}
-
-function FilterGroup({ label, options, value, counts, onChange }) {
-  return (
-    <div role="group" aria-label={label} className="flex rounded-[12px] border border-line bg-surface-2 p-1">
-      {options.map((option) => (
-        <button
-          key={option.value || 'all'}
-          type="button"
-          aria-pressed={value === option.value}
-          onClick={() => onChange(option.value)}
-          className={`flex h-9 items-center gap-2 rounded-lg px-3.5 text-sm whitespace-nowrap transition focus-visible:ring-3 focus-visible:ring-chart/20 focus-visible:outline-none ${
-            value === option.value ? 'bg-white font-semibold text-ink shadow-sm' : 'text-muted hover:text-ink'
-          }`}
-        >
-          {option.label}
-          {counts[option.value] != null && (
-            <span
-              className={`min-w-6 rounded-full px-1.5 py-0.5 text-center text-xs font-medium ${
-                value === option.value ? 'bg-surface-2 text-ink' : 'bg-white/70 text-muted'
-              }`}
-            >
-              {formatNumber(counts[option.value])}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
-  )
 }
 
 function EmptyState({ title, detail }) {

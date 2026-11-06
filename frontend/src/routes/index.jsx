@@ -6,6 +6,9 @@ import OverviewPage from '../features/overview/OverviewPage'
 import CoursesPage from '../features/courses/CoursesPage'
 import CustomerDetailPage from '../features/customers/CustomerDetailPage'
 import CustomersPage from '../features/customers/CustomersPage'
+import OrderDetailPage from '../features/orders/OrderDetailPage'
+import OrdersPage from '../features/orders/OrdersPage'
+import SellPage from '../features/orders/SellPage'
 import StocksPage from '../features/stocks/StocksPage'
 import LoginPage from '../features/auth/LoginPage'
 import RequireAuth from '../features/auth/RequireAuth'
@@ -27,7 +30,9 @@ export const router = createBrowserRouter([
         element: <OverviewPage />,
         handle: { title: 'Overview', showCreateOrder: true },
       },
-      { path: 'orders', element: <ComingSoonPage />, handle: { title: 'Orders' } },
+      { path: 'orders', element: <OrdersPage />, handle: { title: 'Orders' } },
+      { path: 'orders/:id', element: <OrderDetailPage />, handle: { title: 'Orders' } },
+      { path: 'sell', element: <SellPage />, handle: { title: 'ขาย' } },
       { path: 'customers', element: <CustomersPage />, handle: { title: 'Customers' } },
       { path: 'customers/:id', element: <CustomerDetailPage />, handle: { title: 'Customers' } },
       { path: 'stocks', element: <StocksPage />, handle: { title: 'Stocks & Stock-Logs' } },

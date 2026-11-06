@@ -4,4 +4,11 @@ import axiosClient from './axiosClient'
 export const orderApi = {
   // params: { customer_id, from, to, status: paid|partial|unpaid, page, page_size }
   getAll: (params) => axiosClient.get('/orders', { params }),
+  // Order + customer + branch + items (with course/stock) + payments + live total/paid/outstanding/status
+  getById: (id) => axiosClient.get(`/orders/${id}`),
+  // Branch accounts only (admin gets 403). body: { customer_id, order_date, source,
+  // items: [{ item_type: course|stock, course_id | stock_id, qty, discount }], payments: [{ method, amount, reference }] }
+  create: (body) => axiosClient.post('/orders', body),
+  // body: { method: cash|transfer|card, amount: "500.00", reference } → the updated order
+  addPayment: (id, body) => axiosClient.post(`/orders/${id}/payments`, body),
 }

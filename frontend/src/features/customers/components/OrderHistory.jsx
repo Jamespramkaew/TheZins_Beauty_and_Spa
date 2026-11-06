@@ -1,6 +1,10 @@
+import { Link } from 'react-router-dom'
+import OrderStatusBadge from '../../../components/OrderStatusBadge'
 import Pagination from '../../../components/ui/Pagination'
+import { formatDateOnly } from '../../../utils/date'
 import { formatBaht } from '../../../utils/format'
-import { ORDER_STATUSES, PAGE_SIZE_OPTIONS, formatDateOnly, toNumber } from '../customerUtils'
+import { toNumber } from '../../../utils/number'
+import { PAGE_SIZE_OPTIONS } from '../customerUtils'
 
 // orders = one page of GET /orders?customer_id= (the page owns the query so the tab can show its count)
 function OrderHistory({ orders, meta, isAdmin, onPageChange, onPageSizeChange }) {
@@ -29,11 +33,14 @@ function OrderHistory({ orders, meta, isAdmin, onPageChange, onPageSizeChange })
           </thead>
           <tbody className="divide-y divide-line bg-white">
             {orders.map((order) => {
-              const status = ORDER_STATUSES[order.status] ?? ORDER_STATUSES.unpaid
               const outstanding = toNumber(order.outstanding)
               return (
                 <tr key={order.id}>
-                  <td className="px-4 py-3.5 font-semibold whitespace-nowrap text-ink">{order.order_no}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap">
+                    <Link to={`/orders/${order.id}`} className="font-semibold text-chart underline-offset-4 hover:underline">
+                      {order.order_no}
+                    </Link>
+                  </td>
                   <td className="px-3 py-3.5 whitespace-nowrap">{formatDateOnly(order.order_date)}</td>
                   <td className="px-3 py-3.5 whitespace-nowrap text-muted">{order.branch_code}</td>
                   <td className="px-3 py-3.5 text-right font-semibold whitespace-nowrap">{formatBaht(toNumber(order.total))}</td>
@@ -42,9 +49,7 @@ function OrderHistory({ orders, meta, isAdmin, onPageChange, onPageSizeChange })
                     {formatBaht(outstanding)}
                   </td>
                   <td className="px-4 py-3.5">
-                    <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium whitespace-nowrap ${status.className}`}>
-                      {status.label}
-                    </span>
+                    <OrderStatusBadge status={order.status} />
                   </td>
                 </tr>
               )

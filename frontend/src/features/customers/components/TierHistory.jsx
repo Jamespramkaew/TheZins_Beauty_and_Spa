@@ -1,4 +1,4 @@
-import { formatDateTime } from '../customerUtils'
+import { formatDateTime } from '../../../utils/date'
 import TierBadge from './TierBadge'
 
 // rows = GET /customers/:id/tier-changes (newest first)
