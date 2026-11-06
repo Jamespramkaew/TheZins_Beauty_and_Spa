@@ -9,7 +9,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useQuery } from '../../hooks/useQuery'
 import { useToast } from '../../hooks/useToast'
 import { toISODate } from '../../utils/date'
-import { toNumber } from '../../utils/number'
+import { roundMoney, toNumber } from '../../utils/number'
 import BillPanel from './components/BillPanel'
 import CatalogPanel from './components/CatalogPanel'
 import CustomerPicker from './components/CustomerPicker'
@@ -73,9 +73,9 @@ function SellPage() {
 
   const totals = lines.reduce(
     (sum, line) => ({
-      gross: sum.gross + line.qty * line.price,
-      discount: sum.discount + line.discountValue,
-      net: sum.net + line.total,
+      gross: roundMoney(sum.gross + line.gross),
+      discount: roundMoney(sum.discount + line.discountValue),
+      net: roundMoney(sum.net + line.total),
     }),
     { gross: 0, discount: 0, net: 0 },
   )
@@ -88,13 +88,14 @@ function SellPage() {
     method: payment.method,
     amount: amountText,
     valid: amountValid,
-    remaining: Math.max(0, totals.net - (amountValid && amountText.trim() !== '' ? amountValue : 0)),
+    remaining: Math.max(0, roundMoney(totals.net - (amountValid && amountText.trim() !== '' ? amountValue : 0))),
   }
 
   const withTotals = (line) => {
     const discountText = line.discount.trim()
-    const discountValue = MONEY_PATTERN.test(discountText) ? Math.min(Number(discountText), line.qty * line.price) : 0
-    return { ...line, discountValue, total: line.qty * line.price - discountValue }
+    const gross = roundMoney(line.qty * line.price)
+    const discountValue = MONEY_PATTERN.test(discountText) ? Math.min(Number(discountText), gross) : 0
+    return { ...line, gross, discountValue, total: roundMoney(gross - discountValue) }
   }
 
   const updateLine = (key, patch) => {
@@ -126,7 +127,7 @@ function SellPage() {
 
   const linesValid = lines.every((line) => {
     const text = line.discount.trim()
-    return text === '' || (MONEY_PATTERN.test(text) && Number(text) <= line.qty * line.price)
+    return text === '' || (MONEY_PATTERN.test(text) && Number(text) <= line.gross)
   })
 
   const submit = async () => {

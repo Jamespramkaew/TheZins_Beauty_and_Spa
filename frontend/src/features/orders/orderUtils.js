@@ -1,4 +1,4 @@
-import { toNumber } from '../../utils/number'
+import { roundMoney, toNumber } from '../../utils/number'
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
@@ -27,7 +27,7 @@ const SOURCE_LABELS = { phone: 'โทรศัพท์', 'walk-in': 'walk-in',
 export const sourceLabel = (source) => (source ? (SOURCE_LABELS[source] ?? source) : '')
 
 // One line of a bill: qty × unit_price − discount (same formula as the backend total)
-export const lineTotal = (item) => item.qty * toNumber(item.unit_price) - toNumber(item.discount)
+export const lineTotal = (item) => roundMoney(item.qty * toNumber(item.unit_price) - toNumber(item.discount))
 
 export const itemName = (item) => item.course?.name ?? item.stock?.name ?? (item.item_type === 'credit' ? 'เครดิต VIP' : '–')
 

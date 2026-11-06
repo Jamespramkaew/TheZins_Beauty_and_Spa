@@ -56,7 +56,7 @@ function BillPanel({
         ) : (
           <ul className="space-y-3">
             {lines.map((line, index) => {
-              const gross = line.qty * line.price
+              const gross = line.gross
               const discountInvalid =
                 line.discount.trim() !== '' && (!MONEY_PATTERN.test(line.discount.trim()) || Number(line.discount) > gross)
               return (
