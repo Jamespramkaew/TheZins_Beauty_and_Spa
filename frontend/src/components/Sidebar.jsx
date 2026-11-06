@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   LuChevronDown,
   LuClipboardList,
@@ -13,9 +13,11 @@ import {
   LuUsers,
   LuX,
 } from 'react-icons/lu'
+import { stockLogApi } from '../api/stockLogApi'
 import { useAuth } from '../hooks/useAuth'
+import { useQuery } from '../hooks/useQuery'
 
-// TODO: stocks badge should be the real count of low/out-of-stock items
+// `countKey` = which live count goes in the item's badge (see Sidebar)
 const menuGroups = [
   {
     label: 'GENERAL',
@@ -23,7 +25,7 @@ const menuGroups = [
       { to: '/overview', label: 'Overview', icon: LuLayoutGrid },
       { to: '/orders', label: 'Orders', icon: LuClipboardList },
       { to: '/customers', label: 'Customers', icon: LuUsers },
-      { to: '/stocks', label: 'Stocks & Stock-Logs', icon: LuPackage, badge: 2 },
+      { to: '/stocks', label: 'Stocks & Stock-Logs', icon: LuPackage, countKey: 'lowStock' },
       { to: '/courses', label: 'Courses', icon: LuSparkles },
     ],
   },
@@ -40,6 +42,13 @@ function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onCloseMobile }) {
   const { user, signOut } = useAuth()
   const [signingOut, setSigningOut] = useState(false)
   const isAdmin = user.role === 'admin'
+  const { pathname } = useLocation()
+
+  // Stock rows at or below min_qty (low or out of stock): branch accounts count their own branch,
+  // admin counts every product × branch. Only meta.total is used, so ask for 1 row.
+  // Refetched on every page change so it catches up after stock is received or adjusted.
+  const lowStock = useQuery(stockLogApi.getQuantities, { low_stock: 'true', page_size: 1 }, { refreshKey: pathname }).meta?.total
+  const counts = { lowStock }
 
   const handleSignOut = async () => {
     setSigningOut(true)
@@ -107,7 +116,7 @@ function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onCloseMobile }) {
                   .filter((item) => !item.adminOnly || isAdmin)
                   .map((item) => (
                     <li key={item.to}>
-                      <SidebarLink item={item} collapsed={collapsed} onNavigate={onCloseMobile} />
+                      <SidebarLink item={item} badge={counts[item.countKey]} collapsed={collapsed} onNavigate={onCloseMobile} />
                     </li>
                   ))}
               </ul>
@@ -147,7 +156,7 @@ function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onCloseMobile }) {
   )
 }
 
-function SidebarLink({ item, collapsed, onNavigate }) {
+function SidebarLink({ item, badge, collapsed, onNavigate }) {
   const Icon = item.icon
 
   return (
@@ -171,13 +180,14 @@ function SidebarLink({ item, collapsed, onNavigate }) {
             <Icon className="size-4" />
           </span>
           <span className={`flex-1 truncate ${collapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
-          {item.badge > 0 && (
+          {badge > 0 && (
             <span
-              className={`flex size-5 items-center justify-center rounded-full bg-white text-[11px] font-bold text-sidebar ${
-                collapsed ? 'lg:absolute lg:top-0.5 lg:right-1.5 lg:size-4 lg:text-[10px]' : ''
+              className={`flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold text-sidebar ${
+                collapsed ? 'lg:absolute lg:top-0.5 lg:right-1.5 lg:h-4 lg:min-w-4 lg:text-[10px]' : ''
               }`}
             >
-              {item.badge}
+              {badge > 99 ? '99+' : badge}
+              <span className="sr-only"> รายการต้องดู</span>
             </span>
           )}
         </>
