@@ -21,6 +21,12 @@ var (
 	ErrDuplicateHN = _package.NewAppError("HN number already exists", _package.CodeConflict, "hn_no already exists") // 409
 )
 
+// ความยาวสูงสุดของช่องที่ไม่บังคับกรอก (ต้องตรงกับ CustomerFormModal.jsx)
+const (
+	maxNicknameLen = 50
+	maxNoteLen     = 1000 // ใช้กับ chronic_disease และ note
+)
+
 // NewCustomerDays = ลูกค้าที่เพิ่มเข้าระบบไม่เกินกี่วัน (นับ 24 ชม. ต่อวันจาก created_at) ถือเป็นลูกค้าใหม่
 // ต้องตรงกับ NEW_CUSTOMER_DAYS ใน frontend/src/features/customers/customerUtils.js (ป้าย "ลูกค้าใหม่")
 const NewCustomerDays = 7
@@ -95,6 +101,10 @@ func (s *service) Create(ctx context.Context, req CreateCustomer) (*models.Custo
 		Lname:   strings.TrimSpace(req.Lname),
 		Tel:     strings.TrimSpace(req.Tel),
 		Address: strings.TrimSpace(req.Address),
+
+		Nickname:       strings.TrimSpace(req.Nickname),
+		ChronicDisease: strings.TrimSpace(req.ChronicDisease),
+		Note:           strings.TrimSpace(req.Note),
 	}
 
 	if err := checkText("hn_no", customer.HnNo, true, 20); err != nil {
@@ -107,6 +117,15 @@ func (s *service) Create(ctx context.Context, req CreateCustomer) (*models.Custo
 		return nil, err
 	}
 	if err := checkText("tel", customer.Tel, false, 20); err != nil {
+		return nil, err
+	}
+	if err := checkText("nickname", customer.Nickname, false, maxNicknameLen); err != nil {
+		return nil, err
+	}
+	if err := checkText("chronic_disease", customer.ChronicDisease, false, maxNoteLen); err != nil {
+		return nil, err
+	}
+	if err := checkText("note", customer.Note, false, maxNoteLen); err != nil {
 		return nil, err
 	}
 
@@ -146,6 +165,15 @@ func (s *service) Update(ctx context.Context, id string, req UpdateCustomer) (*m
 		return nil, err
 	}
 	if err := setText(fields, "tel", req.Tel, false, 20); err != nil {
+		return nil, err
+	}
+	if err := setText(fields, "nickname", req.Nickname, false, maxNicknameLen); err != nil {
+		return nil, err
+	}
+	if err := setText(fields, "chronic_disease", req.ChronicDisease, false, maxNoteLen); err != nil {
+		return nil, err
+	}
+	if err := setText(fields, "note", req.Note, false, maxNoteLen); err != nil {
 		return nil, err
 	}
 	if req.Address != nil {

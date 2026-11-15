@@ -93,7 +93,7 @@ function CustomersPage() {
             type="search"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="ค้นหาชื่อ HN หรือเบอร์โทร"
+            placeholder="ค้นหาชื่อ ชื่อเล่น HN หรือเบอร์โทร"
             aria-label="ค้นหาลูกค้า"
             className="h-10 w-full rounded-control border border-line-strong bg-white pr-3 pl-10 text-sm placeholder:text-subtle focus:border-chart/40 focus:ring-3 focus:ring-chart/10 focus:outline-none"
           />

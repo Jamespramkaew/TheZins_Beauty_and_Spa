@@ -38,7 +38,7 @@ func NewRepository(db *gorm.DB) Repository {
 
 // SearchFilter = เงื่อนไขของ Search (service ตรวจค่าแล้ว)
 type SearchFilter struct {
-	Q        string    // ค้น HN, ชื่อเต็ม หรือเบอร์โทร ว่าง = ทุกคน
+	Q        string    // ค้น HN, ชื่อเต็ม, ชื่อเล่น หรือเบอร์โทร ว่าง = ทุกคน
 	Tier     string    // general / vip ว่าง = ทุกระดับ
 	Joined   string    // new = created_at >= NewSince · old = created_at < NewSince · ว่าง = ทุกคน
 	NewSince time.Time // เส้นแบ่งลูกค้าใหม่/เก่า (ใช้เฉพาะตอน Joined ไม่ว่าง)
@@ -46,7 +46,7 @@ type SearchFilter struct {
 	PageSize int
 }
 
-// Search ค้นลูกค้าจาก HN, ชื่อเต็ม หรือเบอร์โทร (ไม่สนตัวพิมพ์เล็กใหญ่) ทีละหน้า
+// Search ค้นลูกค้าจาก HN, ชื่อเต็ม, ชื่อเล่น หรือเบอร์โทร (ไม่สนตัวพิมพ์เล็กใหญ่) ทีละหน้า
 // q ว่าง = คืนลูกค้าที่สร้างล่าสุด · คืนจำนวนที่ตรงเงื่อนไขทั้งหมด (total) ไว้ทำ meta
 func (r *repository) Search(ctx context.Context, f SearchFilter) ([]models.Customer, int64, error) {
 	filtered := r.db.WithContext(ctx).Model(&models.Customer{})
@@ -62,8 +62,8 @@ func (r *repository) Search(ctx context.Context, f SearchFilter) ([]models.Custo
 	if q := f.Q; q != "" {
 		like := "%" + q + "%"
 		filtered = filtered.Where(
-			"hn_no ILIKE ? OR CONCAT(fname, ' ', lname) ILIKE ? OR tel ILIKE ?",
-			like, like, like,
+			"hn_no ILIKE ? OR CONCAT(fname, ' ', lname) ILIKE ? OR nickname ILIKE ? OR tel ILIKE ?",
+			like, like, like, like,
 		)
 	}
 

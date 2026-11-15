@@ -1,7 +1,7 @@
 import { FiArrowRight, FiEdit2, FiStar, FiX } from 'react-icons/fi'
 import { Link } from 'react-router-dom'
 import { formatDate, formatDateOnly } from '../../../utils/date'
-import { fullName, initialOf, maskCitizenId, tierOf } from '../customerUtils'
+import { fullName, initialOf, maskCitizenId, tierOf, withAge } from '../customerUtils'
 import NewCustomerBadge from './NewCustomerBadge'
 import TierBadge from './TierBadge'
 
@@ -35,11 +35,14 @@ function CustomerPanel({ customer, onClose, onEdit, onChangeTier }) {
       </div>
 
       <dl className="divide-y divide-line px-5 text-sm">
+        <Row label="ชื่อเล่น" value={customer.nickname} />
         <Row label="เลข HN" value={customer.hn_no} />
         <Row label="เบอร์โทร" value={customer.tel} />
         <Row label="เลขบัตรประชาชน" value={maskCitizenId(customer.citizen_id)} />
-        <Row label="วันเกิด" value={customer.b_day ? formatDateOnly(customer.b_day) : ''} />
+        <Row label="วันเกิด" value={customer.b_day ? withAge(formatDateOnly(customer.b_day), customer.b_day) : ''} />
         <Row label="ที่อยู่" value={customer.address} />
+        <Row label="โรคประจำตัว" value={customer.chronic_disease} />
+        <Row label="ข้อมูลเพิ่มเติม" value={customer.note} />
         <Row label="วันที่เพิ่ม" value={formatDate(customer.created_at)} />
       </dl>
 
@@ -76,7 +79,7 @@ function Row({ label, value }) {
   return (
     <div className="flex justify-between gap-4 py-3">
       <dt className="shrink-0 text-muted">{label}</dt>
-      <dd className="text-right text-ink [overflow-wrap:anywhere]">{value || '–'}</dd>
+      <dd className="text-right whitespace-pre-line text-ink [overflow-wrap:anywhere]">{value || '–'}</dd>
     </div>
   )
 }
