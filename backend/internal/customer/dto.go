@@ -31,13 +31,13 @@ type UpdateCustomer struct {
 
 // ChangeTier รับ body ของ POST /api/customers/:id/tier
 type ChangeTier struct {
-	Tier string `json:"tier"` // general หรือ vip
+	Tier string `json:"tier"` // general, vip หรือ credit
 }
 
 // SearchCustomersQuery = query string ของ GET /api/customers (รับเป็นข้อความ แปลงใน service)
 type SearchCustomersQuery struct {
 	Q        string // ค้น HN, ชื่อเต็ม, ชื่อเล่น หรือเบอร์โทร ว่าง = ลูกค้าที่สร้างล่าสุด
-	Tier     string // general หรือ vip ว่าง = ทุกระดับ
+	Tier     string // general, vip หรือ credit ว่าง = ทุกระดับ
 	Joined   string // new (เพิ่มไม่เกิน NewCustomerDays วัน) หรือ old ว่าง = ทุกคน
 	Page     string // ว่าง = 1
 	PageSize string // ว่าง = 20 สูงสุด 100

@@ -30,15 +30,18 @@ function CustomersPage() {
   const filtered = search !== '' || filter !== ''
 
   // Counts beside the buttons follow the search box (the number = what you get when you press it).
-  // Only meta.total is needed, so each asks for 1 row. ทั่วไป = ทุกระดับ − VIP.
+  // Only meta.total is needed, so each asks for 1 row. Each tier is counted on its own.
   const [countsKey, setCountsKey] = useState(0)
   const allCount = useCustomerTotal({ q }, countsKey)
   const vipCount = useCustomerTotal({ q, tier: 'vip' }, countsKey)
+  const generalCount = useCustomerTotal({ q, tier: 'general' }, countsKey)
+  const creditCount = useCustomerTotal({ q, tier: 'credit' }, countsKey)
   const newCount = useCustomerTotal({ q, joined: 'new' }, countsKey)
   const counts = {
     '': allCount,
     vip: vipCount,
-    general: allCount != null && vipCount != null ? allCount - vipCount : undefined,
+    general: generalCount,
+    credit: creditCount,
     new: newCount,
   }
 

@@ -8,13 +8,18 @@ export const CUSTOMER_FILTERS = [
   { value: '', label: 'ทุกระดับ', params: {} },
   { value: 'vip', label: 'VIP', params: { tier: 'vip' } },
   { value: 'general', label: 'ทั่วไป', params: { tier: 'general' } },
+  { value: 'credit', label: 'วงเงิน', params: { tier: 'credit' } },
   { value: 'new', label: 'ลูกค้าใหม่', params: { joined: 'new' } },
 ]
 
 export const TIERS = {
   vip: { label: 'VIP', className: 'bg-gold-bg text-gold-ink', avatarClassName: 'bg-gold-bg text-gold-ink' },
   general: { label: 'ทั่วไป', className: 'bg-surface-2 text-muted', avatarClassName: 'bg-surface-2 text-muted' },
+  credit: { label: 'วงเงิน', className: 'bg-chart/10 text-chart', avatarClassName: 'bg-chart/10 text-chart' },
 }
+
+// Every tier the backend accepts (validTiers in backend/internal/customer/service.go), in display order
+export const TIER_VALUES = Object.keys(TIERS)
 
 export const tierOf = (tier) => TIERS[tier] ?? TIERS.general
 

@@ -174,3 +174,35 @@ func TestCustomerRepo_SavesExtraFields(t *testing.T) {
 		Count(&nulls).Error)
 	assert.Zero(t, nulls)
 }
+
+// DB ต้องรับระดับ credit ทั้งใน customers และ tier_changes (CHECK ถูกแก้ใน extra.sql)
+// และยังต้องปฏิเสธค่าที่ไม่รู้จัก
+func TestCustomerRepo_ChangeTier_ToCredit(t *testing.T) {
+	tx := newTx(t)
+	repo := customer.NewRepository(tx)
+
+	admin := models.User{Username: uniqueName("itest-tier-admin"), Password: "x", Role: "admin"}
+	require.NoError(t, tx.Create(&admin).Error)
+	c := models.Customer{Fname: "itest-credit", Tier: "general", HnNo: "C" + tag()}
+	require.NoError(t, tx.Create(&c).Error)
+
+	got, err := repo.ChangeTier(ctx, c.ID, "credit", admin.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "credit", got.Tier)
+
+	history, err := repo.ListTierChanges(ctx, c.ID)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, "credit", history[0].NewTier)
+
+	rows, _, err := repo.Search(ctx, customer.SearchFilter{Q: "itest-credit", Tier: "credit", Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, c.ID, rows[0].ID)
+
+	err = expectDBError(t, tx, func() error {
+		return tx.Model(&models.Customer{}).Where("id = ?", c.ID).Update("tier", "gold").Error
+	})
+	require.Error(t, err, "DB ต้องไม่รับระดับที่ไม่รู้จัก")
+	assert.Contains(t, err.Error(), "chk_customers_tier")
+}

@@ -15,7 +15,7 @@ type Customer struct {
 	Nickname  string     `gorm:"type:varchar(50);not null;default:''" json:"nickname"`
 	Address   string     `gorm:"type:text" json:"address"`
 	CitizenID *string    `gorm:"type:varchar(13)" json:"citizen_id"`
-	Tier      string     `gorm:"type:varchar(10);not null;default:'general';check:tier IN ('general','vip')" json:"tier"`
+	Tier      string     `gorm:"type:varchar(10);not null;default:'general';check:tier IN ('general','vip','credit')" json:"tier"`
 	HnNo      string     `gorm:"type:varchar(20);not null;uniqueIndex" json:"hn_no"` // ร้านเป็นคนกำหนดเลข
 	Tel       string     `gorm:"type:varchar(20);index" json:"tel"`
 	BDay      *time.Time `gorm:"type:date" json:"b_day"`
@@ -32,7 +32,7 @@ type TierChange struct {
 	ID            string    `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	CustomerID    string    `gorm:"type:uuid;not null;index" json:"customer_id"`
 	Customer      *Customer `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
-	NewTier       string    `gorm:"type:varchar(10);not null;check:new_tier IN ('general','vip')" json:"new_tier"`
+	NewTier       string    `gorm:"type:varchar(10);not null;check:new_tier IN ('general','vip','credit')" json:"new_tier"`
 	ChangedBy     string    `gorm:"type:uuid;not null" json:"changed_by"` // user ที่เป็นคนเปลี่ยน
 	ChangedByUser *User     `gorm:"foreignKey:ChangedBy" json:"changed_by_user,omitempty"`
 	ChangedAt     time.Time `gorm:"not null;autoCreateTime" json:"changed_at"`

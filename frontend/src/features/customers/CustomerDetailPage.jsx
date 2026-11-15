@@ -124,7 +124,7 @@ function CustomerDetailPage() {
             className="flex h-10 items-center gap-2 rounded-control border border-line-strong bg-white px-4 text-sm font-medium text-ink transition hover:bg-surface-2"
           >
             <FiStar className="size-4" />
-            {customer.tier === 'vip' ? 'เปลี่ยนเป็นทั่วไป' : 'เปลี่ยนเป็น VIP'}
+            เปลี่ยนระดับ
           </button>
           {/* POST /orders is branch only, so admin gets no sell button */}
           {!isAdmin && (

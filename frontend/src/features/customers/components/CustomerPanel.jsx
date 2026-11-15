@@ -61,7 +61,7 @@ function CustomerPanel({ customer, onClose, onEdit, onChangeTier }) {
           className="flex h-10 items-center justify-center gap-2 rounded-control border border-line-strong bg-white text-sm font-medium text-ink transition hover:bg-surface-2"
         >
           <FiStar className="size-4" />
-          {customer.tier === 'vip' ? 'เปลี่ยนเป็นทั่วไป' : 'เปลี่ยนเป็น VIP'}
+          เปลี่ยนระดับ
         </button>
         <Link
           to={`/customers/${customer.id}`}

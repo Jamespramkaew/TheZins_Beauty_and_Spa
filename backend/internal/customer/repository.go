@@ -39,7 +39,7 @@ func NewRepository(db *gorm.DB) Repository {
 // SearchFilter = เงื่อนไขของ Search (service ตรวจค่าแล้ว)
 type SearchFilter struct {
 	Q        string    // ค้น HN, ชื่อเต็ม, ชื่อเล่น หรือเบอร์โทร ว่าง = ทุกคน
-	Tier     string    // general / vip ว่าง = ทุกระดับ
+	Tier     string    // general / vip / credit ว่าง = ทุกระดับ
 	Joined   string    // new = created_at >= NewSince · old = created_at < NewSince · ว่าง = ทุกคน
 	NewSince time.Time // เส้นแบ่งลูกค้าใหม่/เก่า (ใช้เฉพาะตอน Joined ไม่ว่าง)
 	Page     int
