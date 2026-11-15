@@ -14,14 +14,19 @@ export const pricePerSession = (price, maxSession) =>
 
 export const formatValidDay = (validDay) => (validDay == null ? '∞ ไม่หมดอายุ' : `${formatNumber(validDay)} วัน`)
 
-// Courses per category among `courses`, for the filter badges ('' = all of them).
+// Filter-bar value for the "ปิดขาย" button. Not a real category (categories are typed freely,
+// so a plain word like "inactive" could collide); it maps to ?active=false instead of ?category=.
+export const INACTIVE_FILTER = '__inactive'
+
+// Courses per category among `courses`, for the filter badges ('' = all of them, INACTIVE_FILTER = ปิดขาย).
 // Follows the search box like the list does: name contains `search`, ignoring case.
 export const countByCategory = (courses, search) => {
   const needle = search.toLowerCase()
-  const counts = { '': 0 }
+  const counts = { '': 0, [INACTIVE_FILTER]: 0 }
   for (const course of courses) {
     if (needle && !course.name.toLowerCase().includes(needle)) continue
     counts[''] += 1
+    if (!course.is_active) counts[INACTIVE_FILTER] += 1
     const category = course.category?.trim().toLowerCase()
     if (category) counts[category] = (counts[category] ?? 0) + 1
   }

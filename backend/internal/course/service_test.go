@@ -31,6 +31,7 @@ type fakeRepo struct {
 	hardDeleted  []string
 	lastSearch   string
 	lastCategory string
+	lastActive   *bool
 }
 
 func (r *fakeRepo) CheckCourseHasRelation(ctx context.Context, courseId string) (bool, error) {
@@ -50,8 +51,8 @@ func (r *fakeRepo) HardDeleteCourse(ctx context.Context, courseId string) error 
 	return nil
 }
 
-func (r *fakeRepo) GetAllCourse(ctx context.Context, search, category string, page, pageSize int) ([]models.Course, int64, error) {
-	r.lastSearch, r.lastCategory = search, category
+func (r *fakeRepo) GetAllCourse(ctx context.Context, search, category string, active *bool, page, pageSize int) ([]models.Course, int64, error) {
+	r.lastSearch, r.lastCategory, r.lastActive = search, category, active
 	return r.courses, int64(len(r.courses)), nil
 }
 
@@ -474,5 +475,33 @@ func TestGetAllCourse_PassesTrimmedCategory(t *testing.T) {
 	}
 	if repo.lastCategory != "untouched" {
 		t.Errorf("category over 50 chars must not reach the repository")
+	}
+}
+
+// active: "" = ไม่กรอง (nil) · true / false ส่งต่อเป็นค่า bool · ค่าอื่น = 400 ไม่ถึง repository
+func TestGetAllCourse_ParsesActive(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want *bool
+	}{{"", nil}, {"true", new(true)}, {" false ", new(false)}} {
+		repo := newFakeRepo()
+		_, _, err := NewService(repo).GetAllCourse(context.Background(), GetAllCourseQuery{Active: tc.in})
+		if err != nil {
+			t.Fatalf("active %q: %v", tc.in, err)
+		}
+		if (repo.lastActive == nil) != (tc.want == nil) || (tc.want != nil && *repo.lastActive != *tc.want) {
+			t.Errorf("active %q → %v, want %v", tc.in, repo.lastActive, tc.want)
+		}
+	}
+
+	for _, in := range []string{"1", "yes", "TRUE", "inactive"} {
+		repo := newFakeRepo()
+		_, _, err := NewService(repo).GetAllCourse(context.Background(), GetAllCourseQuery{Active: in})
+		if errCode(err) != _package.CodeValidation {
+			t.Errorf("active %q must be 400, got %v", in, err)
+		}
+		if repo.lastActive != nil {
+			t.Errorf("active %q must not reach the repository", in)
+		}
 	}
 }

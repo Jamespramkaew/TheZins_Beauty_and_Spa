@@ -41,7 +41,17 @@ func (s *service) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]Cour
 	if utf8.RuneCountInString(category) > 50 {
 		return nil, _package.PageMeta{}, invalid("category must be at most 50 characters")
 	}
-	courses, total, err := s.repository.GetAllCourse(ctx, strings.TrimSpace(q.Search), category, page, pageSize)
+	var active *bool
+	switch strings.TrimSpace(q.Active) {
+	case "":
+	case "true":
+		active = new(true)
+	case "false":
+		active = new(false)
+	default:
+		return nil, _package.PageMeta{}, invalid("active must be true or false")
+	}
+	courses, total, err := s.repository.GetAllCourse(ctx, strings.TrimSpace(q.Search), category, active, page, pageSize)
 	if err != nil {
 		return nil, _package.PageMeta{}, err
 	}

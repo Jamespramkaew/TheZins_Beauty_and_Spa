@@ -224,7 +224,7 @@ func TestCourseRepo_GetAllCourse_PagesWithoutDuplicatesAndExcludesDeleted(t *tes
 	var names []string
 	pages := int(wantTotal+1) / 2
 	for page := 1; page <= pages; page++ {
-		rows, total, err := repo.GetAllCourse(ctx, "", "", page, 2)
+		rows, total, err := repo.GetAllCourse(ctx, "", "", nil, page, 2)
 		require.NoError(t, err)
 		assert.Equal(t, wantTotal, total, "total ต้องนับทุกคอร์สที่ยังไม่ถูกลบ ไม่ใช่แค่หน้านี้")
 		for _, r := range rows {
@@ -240,7 +240,7 @@ func TestCourseRepo_GetAllCourse_PagesWithoutDuplicatesAndExcludesDeleted(t *tes
 	assert.False(t, seen[deleted.ID], "คอร์สที่ถูก soft delete ต้องไม่โผล่")
 	assert.Equal(t, []string{prefix + "-a", prefix + "-b", prefix + "-c"}, names, "ต้องเรียงตามชื่อ")
 
-	rows, _, err := repo.GetAllCourse(ctx, "", "", pages+1, 2)
+	rows, _, err := repo.GetAllCourse(ctx, "", "", nil, pages+1, 2)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "เกินหน้าสุดท้าย = ว่าง ไม่ error")
 }
@@ -259,7 +259,7 @@ func TestCourseRepo_GetAllCourse_PreloadsItemsWithStock(t *testing.T) {
 	require.NoError(t, tx.Create(&models.CourseItem{CourseID: withItems.ID, StockID: stockA.ID, UseQty: 1}).Error)
 	require.NoError(t, tx.Delete(&models.Stock{}, "id = ?", stockB.ID).Error)
 
-	rows, _, err := repo.GetAllCourse(ctx, p, "", 1, 20)
+	rows, _, err := repo.GetAllCourse(ctx, p, "", nil, 1, 20)
 	require.NoError(t, err)
 	require.Equal(t, []string{p + "-a", p + "-b"}, courseNames(rows))
 
@@ -298,18 +298,18 @@ func TestCourseRepo_GetAllCourse_Search(t *testing.T) {
 	gone := mkCourse(t, tx, p+"-facial old")
 	softDeleteCourse(t, tx, gone.ID)
 
-	rows, total, err := repo.GetAllCourse(ctx, p+"-FACIAL", "", 1, 20)
+	rows, total, err := repo.GetAllCourse(ctx, p+"-FACIAL", "", nil, 1, 20)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, total, "total ต้องนับเฉพาะที่ตรงคำค้น และไม่นับตัวที่ถูกลบ")
 	assert.Equal(t, []string{p + "-facial basic", p + "-facial gold"}, courseNames(rows),
 		"ไม่สนตัวพิมพ์เล็กใหญ่ และยังเรียงตามชื่อ")
 
-	rows, total, err = repo.GetAllCourse(ctx, p+"-facial", "", 2, 1)
+	rows, total, err = repo.GetAllCourse(ctx, p+"-facial", "", nil, 2, 1)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, total, "แบ่งหน้าแล้ว total ยังเป็นจำนวนที่ตรงคำค้นทั้งหมด")
 	assert.Equal(t, []string{p + "-facial gold"}, courseNames(rows))
 
-	rows, total, err = repo.GetAllCourse(ctx, uniqueName("itest-nomatch"), "", 1, 20)
+	rows, total, err = repo.GetAllCourse(ctx, uniqueName("itest-nomatch"), "", nil, 1, 20)
 	require.NoError(t, err)
 	assert.EqualValues(t, 0, total)
 	assert.Empty(t, rows)
@@ -325,11 +325,11 @@ func TestCourseRepo_GetAllCourse_SearchEscapesWildcards(t *testing.T) {
 	mkCourse(t, tx, p+"-a_b")
 	mkCourse(t, tx, p+"-axb")
 
-	rows, _, err := repo.GetAllCourse(ctx, p+"-ลด 50%", "", 1, 20)
+	rows, _, err := repo.GetAllCourse(ctx, p+"-ลด 50%", "", nil, 1, 20)
 	require.NoError(t, err)
 	assert.Equal(t, []string{p + "-ลด 50% ทั้งคอร์ส"}, courseNames(rows))
 
-	rows, _, err = repo.GetAllCourse(ctx, p+"-a_b", "", 1, 20)
+	rows, _, err = repo.GetAllCourse(ctx, p+"-a_b", "", nil, 1, 20)
 	require.NoError(t, err)
 	assert.Equal(t, []string{p + "-a_b"}, courseNames(rows))
 }
@@ -571,7 +571,7 @@ func TestCourseService_Add_WithItems(t *testing.T) {
 	}
 
 	// สิ่งที่บันทึกจริงและลำดับต้องตรงกับที่ GET คืน
-	rows, _, err := course.NewRepository(tx).GetAllCourse(ctx, p, "", 1, 20)
+	rows, _, err := course.NewRepository(tx).GetAllCourse(ctx, p, "", nil, 1, 20)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.Len(t, rows[0].Items, 2)
@@ -741,7 +741,7 @@ func TestCourseRepo_GetAllCourse_FiltersByCategory(t *testing.T) {
 		{"", []string{p + "-a", p + "-b", p + "-c", p + "-d", p + "-e"}},
 		{"laser", nil},
 	} {
-		rows, total, err := repo.GetAllCourse(ctx, p, tc.category, 1, 20)
+		rows, total, err := repo.GetAllCourse(ctx, p, tc.category, nil, 1, 20)
 		require.NoError(t, err, "category %q", tc.category)
 		assert.EqualValues(t, len(tc.want), total, "category %q", tc.category)
 		if tc.want == nil {
@@ -752,8 +752,43 @@ func TestCourseRepo_GetAllCourse_FiltersByCategory(t *testing.T) {
 	}
 
 	// แบ่งหน้าแล้ว total ยังเป็นจำนวนทั้งหมดของหมวดนั้น
-	rows, total, err := repo.GetAllCourse(ctx, p, "spa", 2, 1)
+	rows, total, err := repo.GetAllCourse(ctx, p, "spa", nil, 2, 1)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, total)
 	assert.Equal(t, []string{p + "-b"}, courseNames(rows))
+}
+
+// active กรองตาม is_active ใช้คู่กับ category ได้ และ nil = ทุกสถานะ
+func TestCourseRepo_GetAllCourse_FiltersByActive(t *testing.T) {
+	tx := newTx(t)
+	repo := course.NewRepository(tx)
+	p := uniqueName("itest-active")
+	mk := func(name, category string, active bool) {
+		c := models.Course{Name: p + "-" + name, Price: decimal.NewFromInt(1000), MaxSession: 5, IsActive: true, Category: category}
+		require.NoError(t, tx.Create(&c).Error)
+		// IsActive false ต้องอัปเดตแยก ไม่งั้น GORM ข้ามค่า zero แล้วใช้ default true ของคอลัมน์
+		if !active {
+			require.NoError(t, tx.Model(&c).Update("is_active", false).Error)
+		}
+	}
+	mk("a", "spa", true)
+	mk("b", "spa", false)
+	mk("c", "wax", false)
+
+	for _, tc := range []struct {
+		name     string
+		category string
+		active   *bool
+		want     []string
+	}{
+		{"ปิดขายทุกหมวด", "", new(false), []string{p + "-b", p + "-c"}},
+		{"เปิดขายทุกหมวด", "", new(true), []string{p + "-a"}},
+		{"ทุกสถานะ", "", nil, []string{p + "-a", p + "-b", p + "-c"}},
+		{"spa + ปิดขาย", "spa", new(false), []string{p + "-b"}},
+	} {
+		rows, total, err := repo.GetAllCourse(ctx, p, tc.category, tc.active, 1, 20)
+		require.NoError(t, err, tc.name)
+		assert.EqualValues(t, len(tc.want), total, tc.name)
+		assert.Equal(t, tc.want, courseNames(rows), tc.name)
+	}
 }

@@ -11,7 +11,7 @@ import CourseTable from './components/CourseTable'
 import DeleteCourseDialog from './components/DeleteCourseDialog'
 import FilterGroup from '../../components/ui/FilterGroup'
 import Pagination from '../../components/ui/Pagination'
-import { DEFAULT_CATEGORIES, PAGE_SIZE_OPTIONS, categoryLabel, countByCategory } from './courseUtils'
+import { DEFAULT_CATEGORIES, INACTIVE_FILTER, PAGE_SIZE_OPTIONS, categoryLabel, countByCategory } from './courseUtils'
 import { useCourses } from './useCourses'
 
 const VIEWS = [
@@ -25,7 +25,9 @@ function CoursesPage() {
   const toast = useToast()
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('') // '' = every category
+  const [filter, setFilter] = useState('') // '' = all · a category · INACTIVE_FILTER = ปิดขาย
+  const inactiveOnly = filter === INACTIVE_FILTER
+  const category = inactiveOnly ? '' : filter
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0])
   const [view, setView] = useState('table')
@@ -36,6 +38,7 @@ function CoursesPage() {
   const { courses, allCourses, meta, error, loading, loaded, stats, reload, replaceCourse } = useCourses({
     search,
     category,
+    active: inactiveOnly ? false : undefined,
     page,
     pageSize,
   })
@@ -49,12 +52,16 @@ function CoursesPage() {
   }, [searchInput])
 
   const categories = [...new Set([...DEFAULT_CATEGORIES, ...(stats?.categories ?? [])])]
-  const categoryOptions = [{ value: '', label: 'ทั้งหมด' }, ...categories.map((value) => ({ value, label: categoryLabel(value) }))]
+  const filterOptions = [
+    { value: '', label: 'ทั้งหมด' },
+    ...categories.map((value) => ({ value, label: categoryLabel(value) })),
+    { value: INACTIVE_FILTER, label: 'ปิดขาย' },
+  ]
   // No badges until every course has loaded, rather than showing wrong numbers
-  const categoryCounts = useMemo(() => (allCourses ? countByCategory(allCourses, search) : {}), [allCourses, search])
+  const filterCounts = useMemo(() => (allCourses ? countByCategory(allCourses, search) : {}), [allCourses, search])
 
-  const pickCategory = (value) => {
-    setCategory(value)
+  const pickFilter = (value) => {
+    setFilter(value)
     setPage(1)
   }
 
@@ -63,6 +70,8 @@ function CoursesPage() {
     try {
       const response = await courseApi.update(course.id, { is_active: !course.is_active })
       replaceCourse(response.data)
+      // Under "ปิดขาย" a course that was just reopened no longer belongs in the list
+      if (inactiveOnly) reload()
       toast.success(response.data.is_active ? 'เปิดขายแล้ว' : 'ปิดขายแล้ว', `“${course.name}”`)
     } catch {
       toast.error('เปลี่ยนสถานะไม่สำเร็จ', 'กรุณาลองใหม่อีกครั้ง')
@@ -151,11 +160,11 @@ function CoursesPage() {
       <div className="-mx-1 overflow-x-auto px-1 pb-1">
         <div className="w-max">
           <FilterGroup
-            label="กรองตามหมวดหมู่"
-            options={categoryOptions}
-            value={category}
-            counts={categoryCounts}
-            onChange={pickCategory}
+            label="กรองตามหมวดหมู่หรือสถานะ"
+            options={filterOptions}
+            value={filter}
+            counts={filterCounts}
+            onChange={pickFilter}
           />
         </div>
       </div>
@@ -175,10 +184,12 @@ function CoursesPage() {
           <EmptyState title="กำลังโหลดรายการคอร์ส…" />
         ) : courses.length === 0 ? (
           <EmptyState
-            title={search || category ? 'ไม่พบคอร์สที่ค้นหา' : 'ยังไม่มีคอร์ส'}
+            title={search || filter ? 'ไม่พบคอร์สที่ค้นหา' : 'ยังไม่มีคอร์ส'}
             detail={
-              search || category
-                ? [search && `ชื่อมีคำว่า “${search}”`, category && `หมวด ${categoryLabel(category)}`].filter(Boolean).join(' · ')
+              search || filter
+                ? [search && `ชื่อมีคำว่า “${search}”`, category && `หมวด ${categoryLabel(category)}`, inactiveOnly && 'ที่ปิดขาย']
+                    .filter(Boolean)
+                    .join(' · ')
                 : canManage
                   ? 'กด “เพิ่มคอร์ส” เพื่อเริ่มต้น'
                   : undefined

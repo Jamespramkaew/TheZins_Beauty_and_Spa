@@ -16,17 +16,17 @@ const replaceIn = (courses, updated) => courses.map((course) => (course.id === u
 
 // One page of courses for the list, plus every course for the KPI row and category suggestions.
 // While a request is in flight the previous data stays on screen (loading = true).
-// category '' = every category (left out of the request)
-export function useCourses({ search, category, page, pageSize }) {
+// category '' = every category · active undefined = every status (both left out of the request)
+export function useCourses({ search, category, active, page, pageSize }) {
   const [reloadKey, setReloadKey] = useState(0)
-  const listKey = JSON.stringify([search, category, page, pageSize, reloadKey])
+  const listKey = JSON.stringify([search, category, active, page, pageSize, reloadKey])
   const [list, setList] = useState({ key: null, courses: [], meta: null, error: null })
   const [all, setAll] = useState({ key: null, courses: null })
 
   useEffect(() => {
     let ignore = false
     courseApi
-      .getAll({ search, category: category || undefined, page, page_size: pageSize })
+      .getAll({ search, category: category || undefined, active, page, page_size: pageSize })
       .then((response) => {
         if (!ignore) setList({ key: listKey, courses: response.data, meta: response.meta, error: null })
       })
@@ -36,7 +36,7 @@ export function useCourses({ search, category, page, pageSize }) {
     return () => {
       ignore = true
     }
-  }, [search, category, page, pageSize, listKey])
+  }, [search, category, active, page, pageSize, listKey])
 
   useEffect(() => {
     let ignore = false
