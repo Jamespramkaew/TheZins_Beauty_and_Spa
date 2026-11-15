@@ -16,16 +16,17 @@ const replaceIn = (courses, updated) => courses.map((course) => (course.id === u
 
 // One page of courses for the list, plus every course for the KPI row and category suggestions.
 // While a request is in flight the previous data stays on screen (loading = true).
-export function useCourses({ search, page, pageSize }) {
+// category '' = every category (left out of the request)
+export function useCourses({ search, category, page, pageSize }) {
   const [reloadKey, setReloadKey] = useState(0)
-  const listKey = JSON.stringify([search, page, pageSize, reloadKey])
+  const listKey = JSON.stringify([search, category, page, pageSize, reloadKey])
   const [list, setList] = useState({ key: null, courses: [], meta: null, error: null })
   const [all, setAll] = useState({ key: null, courses: null })
 
   useEffect(() => {
     let ignore = false
     courseApi
-      .getAll({ search, page, page_size: pageSize })
+      .getAll({ search, category: category || undefined, page, page_size: pageSize })
       .then((response) => {
         if (!ignore) setList({ key: listKey, courses: response.data, meta: response.meta, error: null })
       })
@@ -35,7 +36,7 @@ export function useCourses({ search, page, pageSize }) {
     return () => {
       ignore = true
     }
-  }, [search, page, pageSize, listKey])
+  }, [search, category, page, pageSize, listKey])
 
   useEffect(() => {
     let ignore = false
@@ -59,7 +60,8 @@ export function useCourses({ search, page, pageSize }) {
       active,
       inactive: all.courses.length - active,
       noExpiry: all.courses.filter((course) => course.valid_day == null).length,
-      categories: [...new Set(all.courses.map((course) => course.category).filter(Boolean))],
+      // Lower-cased: the API matches category case-insensitively, so "Spa" and "spa" are one filter
+      categories: [...new Set(all.courses.map((course) => course.category?.trim().toLowerCase()).filter(Boolean))],
     }
   }, [all.courses])
 
@@ -73,6 +75,7 @@ export function useCourses({ search, page, pageSize }) {
 
   return {
     courses: list.courses,
+    allCourses: all.courses,
     meta: list.meta,
     error: list.error,
     loading: list.key !== listKey,
