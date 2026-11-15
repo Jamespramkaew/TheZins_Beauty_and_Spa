@@ -102,11 +102,11 @@ func SeedEmployees(db *gorm.DB) error {
 // SeedCourses สร้างคอร์สตัวอย่าง รันซ้ำได้ (มีชื่อคอร์สนี้อยู่แล้วจะข้าม)
 func SeedCourses(db *gorm.DB) error {
 	courses := []models.Course{
-		{Name: "คอร์สหน้าใส 10 ครั้ง", Price: decimal.NewFromInt(3500), MaxSession: 10, ValidDay: new(180), Category: "facial"},
-		{Name: "คอร์สนวดหน้า 5 ครั้ง", Price: decimal.NewFromInt(1500), MaxSession: 5, ValidDay: new(90), Category: "facial"},
-		{Name: "คอร์สนวดตัว 10 ครั้ง", Price: decimal.NewFromInt(4900), MaxSession: 10, ValidDay: new(365), Category: "body"},
+		{Name: courseClearFace, Price: decimal.NewFromInt(3500), MaxSession: 10, ValidDay: new(180), Category: "facial"},
+		{Name: courseFaceMassage, Price: decimal.NewFromInt(1500), MaxSession: 5, ValidDay: new(90), Category: "facial"},
+		{Name: courseBodyMassage, Price: decimal.NewFromInt(4900), MaxSession: 10, ValidDay: new(365), Category: "body"},
 		// ValidDay ไม่ใส่ = nil = ไม่หมดอายุ
-		{Name: "ทรีตเมนต์หน้า 1 ครั้ง", Price: decimal.NewFromInt(590), MaxSession: 1, Category: "facial"},
+		{Name: courseFaceTreatment, Price: decimal.NewFromInt(590), MaxSession: 1, Category: "facial"},
 	}
 
 	for _, c := range courses {
@@ -128,6 +128,8 @@ func SeedStocks(db *gorm.DB) error {
 		{Name: stockGel, IsSellable: false, Category: "normal", UsesPerUnit: 20, MinQty: 2},
 		// ของใช้ในร้าน ห้ามขาย 1 กระปุกใช้ได้ 10 ครั้ง
 		{Name: stockMask, IsSellable: false, Category: "normal", UsesPerUnit: 10, MinQty: 2},
+		// ของใช้ในร้าน ห้ามขาย 1 ขวดใช้ได้ 15 ครั้ง
+		{Name: stockOil, IsSellable: false, Category: "normal", UsesPerUnit: 15, MinQty: 1},
 	}
 
 	for _, s := range stocks {

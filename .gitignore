@@ -17,3 +17,6 @@ node_modules
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# UI mockups / design handoff (local reference only)
+/frontend-ui-template/

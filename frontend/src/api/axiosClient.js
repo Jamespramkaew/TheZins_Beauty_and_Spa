@@ -4,24 +4,27 @@ import { env } from '../config/env'
 const axiosClient = axios.create({
   baseURL: env.apiBaseUrl,
   timeout: env.apiTimeout,
+  // The backend authenticates with a session cookie (the_zins_session)
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 })
 
-axiosClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
+// Called when any request comes back 401 (session missing or expired).
+// AuthProvider registers it to sign the user out and send them to the login page.
+let unauthorizedHandler = null
+
+export const setUnauthorizedHandler = (handler) => {
+  unauthorizedHandler = handler
+}
 
 axiosClient.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('accessToken')
+    // Requests that handle 401 themselves (login, session check) opt out with `skipAuthRedirect`
+    if (error.response?.status === 401 && !error.config?.skipAuthRedirect) {
+      unauthorizedHandler?.()
     }
     return Promise.reject(error)
   },

@@ -25,6 +25,7 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	auth := router.Group("/auth")
 	auth.Post("/login", middleware.ReqEmptyCheck, h.Login)
 	auth.Post("/logout", h.Logout)
+	auth.Get("/me", middleware.AuthMiddleware, h.Me)
 	auth.Patch("/change-password", middleware.AuthMiddleware, middleware.ReqEmptyCheck, h.ChangePassword)
 }
 
@@ -68,6 +69,26 @@ func (h *Handler) Login(c fiber.Ctx) error {
 			"user_id":  user.ID,
 			"username": user.Username,
 			"role":     user.Role,
+		}))
+}
+
+// Me GET /api/auth/me
+// คืนข้อมูลผู้ใช้จาก session ปัจจุบัน ให้หน้าบ้านเช็คว่ายัง login อยู่ไหม (ยังไม่ login → AuthMiddleware ตอบ 401)
+func (h *Handler) Me(c fiber.Ctx) error {
+	user, ok := currentuser.FromCtx(c)
+	if !ok {
+		return _package.SendError(c,
+			_package.NewAppError("Unauthorized", _package.CodeUnauthorized, "User not found in context"),
+			"authentication",
+		)
+	}
+
+	return _package.SendJSON(c, fiber.StatusOK,
+		_package.SuccessResponse("Get current user successfully", fiber.Map{
+			"user_id":   user.ID,
+			"username":  user.Username,
+			"role":      user.Role,
+			"branch_id": user.BranchID, // null = admin (ไม่ผูกสาขา)
 		}))
 }
 

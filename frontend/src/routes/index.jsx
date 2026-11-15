@@ -1,19 +1,45 @@
 import { createBrowserRouter } from 'react-router-dom'
-import MainLayout from '../layouts/MainLayout'
-import HomePage from '../pages/HomePage'
-import ServicesPage from '../pages/ServicesPage'
-import BookingPage from '../pages/BookingPage'
+import DashboardLayout from '../layouts/DashboardLayout'
+import ComingSoonPage from '../pages/ComingSoonPage'
 import NotFoundPage from '../pages/NotFoundPage'
+import OverviewPage from '../features/overview/OverviewPage'
+import CoursesPage from '../features/courses/CoursesPage'
+import CustomerDetailPage from '../features/customers/CustomerDetailPage'
+import CustomersPage from '../features/customers/CustomersPage'
+import OrderDetailPage from '../features/orders/OrderDetailPage'
+import OrdersPage from '../features/orders/OrdersPage'
+import SellPage from '../features/orders/SellPage'
+import StocksPage from '../features/stocks/StocksPage'
+import LoginPage from '../features/auth/LoginPage'
+import RequireAuth from '../features/auth/RequireAuth'
 
 export const router = createBrowserRouter([
+  // Login is the entry page of the system
+  { path: '/', element: <LoginPage /> },
   {
-    path: '/',
-    element: <MainLayout />,
+    // Back-office routes mirror the Sidebar menu and require login. Replace ComingSoonPage
+    // with the module's page once it's built. `handle.title` feeds the Topbar breadcrumb.
+    element: (
+      <RequireAuth>
+        <DashboardLayout />
+      </RequireAuth>
+    ),
     children: [
-      { index: true, element: <HomePage /> },
-      { path: 'services', element: <ServicesPage /> },
-      { path: 'booking', element: <BookingPage /> },
-      { path: '*', element: <NotFoundPage /> },
+      {
+        path: 'overview',
+        element: <OverviewPage />,
+        handle: { title: 'Overview', showCreateOrder: true },
+      },
+      { path: 'orders', element: <OrdersPage />, handle: { title: 'Orders' } },
+      { path: 'orders/:id', element: <OrderDetailPage />, handle: { title: 'Orders' } },
+      { path: 'sell', element: <SellPage />, handle: { title: 'ขาย' } },
+      { path: 'customers', element: <CustomersPage />, handle: { title: 'Customers' } },
+      { path: 'customers/:id', element: <CustomerDetailPage />, handle: { title: 'Customers' } },
+      { path: 'stocks', element: <StocksPage />, handle: { title: 'Stocks & Stock-Logs' } },
+      { path: 'courses', element: <CoursesPage />, handle: { title: 'Courses' } },
+      { path: 'employees', element: <ComingSoonPage />, handle: { title: 'Employee' } },
+      { path: 'branch-accounts', element: <ComingSoonPage />, handle: { title: 'Branch Account' } },
+      { path: '*', element: <NotFoundPage />, handle: { title: 'ไม่พบหน้านี้' } },
     ],
   },
 ])

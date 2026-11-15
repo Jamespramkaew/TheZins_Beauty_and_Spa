@@ -11,6 +11,7 @@ import (
 
 type Repository interface {
 	FindEmployeeById(ctx context.Context, id string) (*models.Employee, error)
+	GetActiveEmployees(ctx context.Context, branchId string) ([]models.Employee, error)
 }
 
 type repository struct {
@@ -35,4 +36,18 @@ func (r *repository) FindEmployeeById(ctx context.Context, id string) (*models.E
 		return nil, err
 	}
 	return &employee, nil
+}
+
+// GetActiveEmployees คืนพนักงานที่ active เรียงตามชื่อ
+// branchId ว่าง = ทุกสาขา
+func (r *repository) GetActiveEmployees(ctx context.Context, branchId string) ([]models.Employee, error) {
+	employees := []models.Employee{}
+	q := r.db.WithContext(ctx).Where("is_active = TRUE")
+	if branchId != "" {
+		q = q.Where("branch_id = ?", branchId)
+	}
+	if err := q.Order("name ASC, id ASC").Find(&employees).Error; err != nil {
+		return nil, err
+	}
+	return employees, nil
 }
