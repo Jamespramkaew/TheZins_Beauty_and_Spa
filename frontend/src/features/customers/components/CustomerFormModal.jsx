@@ -1,12 +1,12 @@
 import { useId, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import dayjs from 'dayjs'
 import { FiAlertCircle, FiX } from 'react-icons/fi'
 import Modal from '../../../components/Modal'
 import { customerApi } from '../../../api/customerApi'
 import { useToast } from '../../../hooks/useToast'
 import { mapCustomerError } from '../customerErrors'
-import { fullName } from '../customerUtils'
+import { ageOf, fullName } from '../customerUtils'
 
 // b_day comes back as "2000-01-31T00:00:00Z"; <input type="date"> wants "2000-01-31"
 const toFormValues = (customer) => ({
@@ -17,6 +17,9 @@ const toFormValues = (customer) => ({
   citizen_id: customer?.citizen_id ?? '',
   b_day: customer?.b_day ? customer.b_day.slice(0, 10) : '',
   address: customer?.address ?? '',
+  nickname: customer?.nickname ?? '',
+  chronic_disease: customer?.chronic_disease ?? '',
+  note: customer?.note ?? '',
 })
 
 // Same limits as the backend (internal/customer/service.go)
@@ -35,6 +38,7 @@ function CustomerFormModal({ customer, onClose, onSaved }) {
     register,
     handleSubmit,
     setError,
+    control,
     formState: { errors, isSubmitting },
   } = useForm({ defaultValues: toFormValues(customer) })
 
@@ -49,6 +53,9 @@ function CustomerFormModal({ customer, onClose, onSaved }) {
       citizen_id: values.citizen_id.trim(),
       b_day: values.b_day,
       address: values.address.trim(),
+      nickname: values.nickname.trim(),
+      chronic_disease: values.chronic_disease.trim(),
+      note: values.note.trim(),
     }
 
     try {
@@ -61,6 +68,9 @@ function CustomerFormModal({ customer, onClose, onSaved }) {
       setSubmitFailed(true)
     }
   }
+
+  // Recomputed as the date is typed, so staff see the age right away
+  const age = ageOf(useWatch({ control, name: 'b_day' }))
 
   const errorCount = Object.keys(errors).length
   const fieldId = (name) => `${formId}-${name}`
@@ -149,6 +159,15 @@ function CustomerFormModal({ customer, onClose, onSaved }) {
                 {...register('lname', { validate: maxLength('นามสกุล', 100) })}
               />
             </Field>
+            <Field id={fieldId('nickname')} label="ชื่อเล่น" error={errors.nickname?.message}>
+              <input
+                id={fieldId('nickname')}
+                type="text"
+                aria-invalid={errors.nickname ? 'true' : undefined}
+                className={inputClass(errors.nickname)}
+                {...register('nickname', { validate: maxLength('ชื่อเล่น', 50) })}
+              />
+            </Field>
             <Field id={fieldId('citizen_id')} label="เลขบัตรประชาชน" error={errors.citizen_id?.message}>
               <input
                 id={fieldId('citizen_id')}
@@ -164,7 +183,12 @@ function CustomerFormModal({ customer, onClose, onSaved }) {
                 })}
               />
             </Field>
-            <Field id={fieldId('b_day')} label="วันเกิด" error={errors.b_day?.message}>
+            <Field
+              id={fieldId('b_day')}
+              label="วันเกิด"
+              hint={age == null ? undefined : `อายุ ${age} ปี`}
+              error={errors.b_day?.message}
+            >
               <input
                 id={fieldId('b_day')}
                 type="date"
@@ -183,6 +207,30 @@ function CustomerFormModal({ customer, onClose, onSaved }) {
                   rows={3}
                   className={`${inputClass(errors.address)} h-auto py-2.5`}
                   {...register('address')}
+                />
+              </Field>
+            </div>
+            <div className="sm:col-span-2">
+              <Field id={fieldId('chronic_disease')} label="โรคประจำตัว" error={errors.chronic_disease?.message}>
+                <textarea
+                  id={fieldId('chronic_disease')}
+                  rows={3}
+                  placeholder="เช่น เบาหวาน ความดันโลหิตสูง"
+                  aria-invalid={errors.chronic_disease ? 'true' : undefined}
+                  className={`${inputClass(errors.chronic_disease)} h-auto py-2.5`}
+                  {...register('chronic_disease', { validate: maxLength('โรคประจำตัว', 1000) })}
+                />
+              </Field>
+            </div>
+            <div className="sm:col-span-2">
+              <Field id={fieldId('note')} label="ข้อมูลเพิ่มเติม" error={errors.note?.message}>
+                <textarea
+                  id={fieldId('note')}
+                  rows={3}
+                  placeholder="เช่น อาการแพ้ยา"
+                  aria-invalid={errors.note ? 'true' : undefined}
+                  className={`${inputClass(errors.note)} h-auto py-2.5`}
+                  {...register('note', { validate: maxLength('ข้อมูลเพิ่มเติม', 1000) })}
                 />
               </Field>
             </div>

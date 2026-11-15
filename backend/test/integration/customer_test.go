@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -131,4 +132,77 @@ func TestCustomerRepo_Search_FiltersByJoined(t *testing.T) {
 			}
 		}
 	}
+}
+
+// ค้นด้วยชื่อเล่นได้ (ไม่สนตัวพิมพ์เล็กใหญ่) และไม่ไปเจอคนที่ชื่อเล่นไม่ตรง
+func TestCustomerRepo_Search_MatchesNickname(t *testing.T) {
+	tx := newTx(t)
+	repo := customer.NewRepository(tx)
+	nick := uniqueName("Nick")
+
+	match := models.Customer{Fname: "itest-nick", Nickname: nick, Tier: "general", HnNo: "N" + tag()}
+	other := models.Customer{Fname: "itest-nick", Nickname: "other", Tier: "general", HnNo: "N" + tag()}
+	require.NoError(t, tx.Create(&match).Error)
+	require.NoError(t, tx.Create(&other).Error)
+
+	rows, total, err := repo.Search(ctx, customer.SearchFilter{Q: strings.ToLower(nick), Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, rows, 1)
+	assert.Equal(t, match.ID, rows[0].ID)
+}
+
+// ช่องใหม่บันทึกลง DB และอ่านกลับได้ครบ ลูกค้าที่ไม่กรอกได้ "" ไม่ใช่ NULL
+func TestCustomerRepo_SavesExtraFields(t *testing.T) {
+	tx := newTx(t)
+	repo := customer.NewRepository(tx)
+
+	full := models.Customer{Fname: "itest-extra", HnNo: "E" + tag(), Tier: "general",
+		Nickname: "หญิง", ChronicDisease: "เบาหวาน", Note: "แพ้ยาเพนิซิลลิน"}
+	require.NoError(t, repo.Create(ctx, &full))
+	got, err := repo.GetByID(ctx, full.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "หญิง", got.Nickname)
+	assert.Equal(t, "เบาหวาน", got.ChronicDisease)
+	assert.Equal(t, "แพ้ยาเพนิซิลลิน", got.Note)
+
+	blank := models.Customer{Fname: "itest-extra", HnNo: "E" + tag(), Tier: "general"}
+	require.NoError(t, repo.Create(ctx, &blank))
+	var nulls int64
+	require.NoError(t, tx.Model(&models.Customer{}).
+		Where("id = ? AND (nickname IS NULL OR chronic_disease IS NULL OR note IS NULL)", blank.ID).
+		Count(&nulls).Error)
+	assert.Zero(t, nulls)
+}
+
+// DB ต้องรับระดับ credit ทั้งใน customers และ tier_changes (CHECK ถูกแก้ใน extra.sql)
+// และยังต้องปฏิเสธค่าที่ไม่รู้จัก
+func TestCustomerRepo_ChangeTier_ToCredit(t *testing.T) {
+	tx := newTx(t)
+	repo := customer.NewRepository(tx)
+
+	admin := models.User{Username: uniqueName("itest-tier-admin"), Password: "x", Role: "admin"}
+	require.NoError(t, tx.Create(&admin).Error)
+	c := models.Customer{Fname: "itest-credit", Tier: "general", HnNo: "C" + tag()}
+	require.NoError(t, tx.Create(&c).Error)
+
+	got, err := repo.ChangeTier(ctx, c.ID, "credit", admin.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "credit", got.Tier)
+
+	history, err := repo.ListTierChanges(ctx, c.ID)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, "credit", history[0].NewTier)
+
+	rows, _, err := repo.Search(ctx, customer.SearchFilter{Q: "itest-credit", Tier: "credit", Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, c.ID, rows[0].ID)
+
+	err = expectDBError(t, tx, func() error {
+		return tx.Model(&models.Customer{}).Where("id = ?", c.ID).Update("tier", "gold").Error
+	})
+	require.Error(t, err, "DB ต้องไม่รับระดับที่ไม่รู้จัก")
+	assert.Contains(t, err.Error(), "chk_customers_tier")
 }

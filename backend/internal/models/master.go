@@ -12,13 +12,17 @@ type Customer struct {
 	ID        string     `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	Fname     string     `gorm:"type:varchar(100);not null" json:"fname"`
 	Lname     string     `gorm:"type:varchar(100)" json:"lname"`
+	Nickname  string     `gorm:"type:varchar(50);not null;default:''" json:"nickname"`
 	Address   string     `gorm:"type:text" json:"address"`
 	CitizenID *string    `gorm:"type:varchar(13)" json:"citizen_id"`
-	Tier      string     `gorm:"type:varchar(10);not null;default:'general';check:tier IN ('general','vip')" json:"tier"`
+	Tier      string     `gorm:"type:varchar(10);not null;default:'general';check:tier IN ('general','vip','credit')" json:"tier"`
 	HnNo      string     `gorm:"type:varchar(20);not null;uniqueIndex" json:"hn_no"` // ร้านเป็นคนกำหนดเลข
 	Tel       string     `gorm:"type:varchar(20);index" json:"tel"`
 	BDay      *time.Time `gorm:"type:date" json:"b_day"`
-	CreatedAt time.Time  `json:"created_at"`
+	// ChronicDisease = โรคประจำตัว · Note = ข้อมูลเพิ่มเติม เช่น อาการแพ้ยา (ไม่บังคับทั้งคู่)
+	ChronicDisease string    `gorm:"type:text;not null;default:''" json:"chronic_disease"`
+	Note           string    `gorm:"type:text;not null;default:''" json:"note"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 func (Customer) TableName() string { return "customers" }
@@ -28,7 +32,7 @@ type TierChange struct {
 	ID            string    `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	CustomerID    string    `gorm:"type:uuid;not null;index" json:"customer_id"`
 	Customer      *Customer `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
-	NewTier       string    `gorm:"type:varchar(10);not null;check:new_tier IN ('general','vip')" json:"new_tier"`
+	NewTier       string    `gorm:"type:varchar(10);not null;check:new_tier IN ('general','vip','credit')" json:"new_tier"`
 	ChangedBy     string    `gorm:"type:uuid;not null" json:"changed_by"` // user ที่เป็นคนเปลี่ยน
 	ChangedByUser *User     `gorm:"foreignKey:ChangedBy" json:"changed_by_user,omitempty"`
 	ChangedAt     time.Time `gorm:"not null;autoCreateTime" json:"changed_at"`

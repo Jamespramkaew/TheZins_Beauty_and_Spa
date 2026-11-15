@@ -5,6 +5,9 @@ const FIELD_LABELS = {
   fname: 'ชื่อ',
   lname: 'นามสกุล',
   tel: 'เบอร์โทร',
+  nickname: 'ชื่อเล่น',
+  chronic_disease: 'โรคประจำตัว',
+  note: 'ข้อมูลเพิ่มเติม',
 }
 
 // Backend detail (English) → [{ field, message }] for react-hook-form setError.

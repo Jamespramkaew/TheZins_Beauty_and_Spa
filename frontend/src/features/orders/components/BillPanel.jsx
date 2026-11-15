@@ -1,5 +1,6 @@
 import { FiMinus, FiPlus, FiX } from 'react-icons/fi'
 import { formatBaht, formatNumber } from '../../../utils/format'
+import TierBadge from '../../customers/components/TierBadge'
 import { MONEY_PATTERN, PAYMENT_METHODS, SOURCES } from '../orderUtils'
 
 // Right side of the sell screen: who it's for, the lines, totals, payment now, confirm.
@@ -32,9 +33,8 @@ function BillPanel({
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 font-semibold text-ink [overflow-wrap:anywhere]">
             {[customer.fname, customer.lname].filter(Boolean).join(' ')}
-            {customer.tier === 'vip' && (
-              <span className="rounded-md bg-gold-bg px-2 py-0.5 text-xs font-medium text-gold-ink">VIP</span>
-            )}
+            {/* ทั่วไป is the default, so only special tiers (VIP, วงเงิน) get a badge */}
+            {customer.tier && customer.tier !== 'general' && <TierBadge tier={customer.tier} />}
           </p>
           <p className="mt-0.5 text-xs text-muted">{customer.hn_no}</p>
         </div>

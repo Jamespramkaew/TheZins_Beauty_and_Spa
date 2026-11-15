@@ -14,7 +14,7 @@ import NewCustomerBadge from './components/NewCustomerBadge'
 import OrderHistory from './components/OrderHistory'
 import TierBadge from './components/TierBadge'
 import TierHistory from './components/TierHistory'
-import { PAGE_SIZE_OPTIONS, fullName, initialOf, maskCitizenId, tierOf } from './customerUtils'
+import { PAGE_SIZE_OPTIONS, fullName, initialOf, maskCitizenId, tierOf, withAge } from './customerUtils'
 
 // useQuery needs stable fetchers, so the id goes in params
 const fetchCustomer = ({ id }) => customerApi.getById(id)
@@ -124,7 +124,7 @@ function CustomerDetailPage() {
             className="flex h-10 items-center gap-2 rounded-control border border-line-strong bg-white px-4 text-sm font-medium text-ink transition hover:bg-surface-2"
           >
             <FiStar className="size-4" />
-            {customer.tier === 'vip' ? 'เปลี่ยนเป็นทั่วไป' : 'เปลี่ยนเป็น VIP'}
+            เปลี่ยนระดับ
           </button>
           {/* POST /orders is branch only, so admin gets no sell button */}
           {!isAdmin && (
@@ -140,10 +140,17 @@ function CustomerDetailPage() {
       </header>
 
       <dl className="grid gap-x-6 gap-y-3 rounded-card border border-line bg-white p-5 text-sm sm:grid-cols-2 xl:grid-cols-4">
+        <Info label="ชื่อเล่น" value={customer.nickname} />
         <Info label="เลขบัตรประชาชน" value={maskCitizenId(customer.citizen_id)} />
-        <Info label="วันเกิด" value={customer.b_day ? formatDateOnly(customer.b_day) : ''} />
+        <Info label="วันเกิด" value={customer.b_day ? withAge(formatDateOnly(customer.b_day), customer.b_day) : ''} />
         <Info label="วันที่เพิ่ม" value={formatDate(customer.created_at)} />
         <Info label="ที่อยู่" value={customer.address} />
+        <div className="sm:col-span-2">
+          <Info label="โรคประจำตัว" value={customer.chronic_disease} />
+        </div>
+        <div className="sm:col-span-2">
+          <Info label="ข้อมูลเพิ่มเติม" value={customer.note} />
+        </div>
       </dl>
 
       <section className="space-y-4">
@@ -235,7 +242,7 @@ function Info({ label, value }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className="mt-1 text-ink [overflow-wrap:anywhere]">{value || '–'}</dd>
+      <dd className="mt-1 whitespace-pre-line text-ink [overflow-wrap:anywhere]">{value || '–'}</dd>
     </div>
   )
 }

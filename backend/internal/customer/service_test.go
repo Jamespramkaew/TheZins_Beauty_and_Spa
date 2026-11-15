@@ -3,6 +3,7 @@ package customer
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func (f *fakeRepo) Search(_ context.Context, filter SearchFilter) ([]models.Cust
 }
 
 func TestSearch_PassesTrimmedTierToRepository(t *testing.T) {
-	for _, tc := range []struct{ in, want string }{{"vip", "vip"}, {" general ", "general"}, {"", ""}} {
+	for _, tc := range []struct{ in, want string }{{"vip", "vip"}, {" general ", "general"}, {"credit", "credit"}, {"", ""}} {
 		repo := &fakeRepo{}
 		_, _, err := NewService(repo).Search(context.Background(), SearchCustomersQuery{Q: " สม ", Tier: tc.in})
 		require.NoError(t, err, "tier %q", tc.in)
@@ -37,14 +38,14 @@ func TestSearch_PassesTrimmedTierToRepository(t *testing.T) {
 
 // ค่าที่ไม่ใช่ general / vip ต้องตอบ 400 ก่อนถึง DB (VIP ตัวใหญ่ก็ไม่รับ เหมือน POST /tier)
 func TestSearch_RejectsUnknownTier(t *testing.T) {
-	for _, tier := range []string{"member", "VIP", "all"} {
+	for _, tier := range []string{"member", "VIP", "CREDIT", "all"} {
 		repo := &fakeRepo{}
 		_, _, err := NewService(repo).Search(context.Background(), SearchCustomersQuery{Tier: tier})
 
 		var appErr *_package.AppError
 		require.True(t, errors.As(err, &appErr), "tier %q", tier)
 		assert.Equal(t, _package.CodeValidation, appErr.Code)
-		assert.Equal(t, "tier must be general or vip", appErr.Detail)
+		assert.Equal(t, "tier must be general, vip or credit", appErr.Detail)
 		assert.False(t, repo.called, "tier %q ไม่ควรถึง repository", tier)
 	}
 }
@@ -75,5 +76,36 @@ func TestSearch_RejectsUnknownJoined(t *testing.T) {
 		assert.Equal(t, _package.CodeValidation, appErr.Code)
 		assert.Equal(t, "joined must be new or old", appErr.Detail)
 		assert.False(t, repo.called, "joined %q ไม่ควรถึง repository", joined)
+	}
+}
+
+// tierRepo จำค่าที่ service ส่งให้ ChangeTier
+type tierRepo struct {
+	Repository
+	gotTier string
+}
+
+func (r *tierRepo) ChangeTier(_ context.Context, id, newTier, _ string) (*models.Customer, error) {
+	r.gotTier = newTier
+	return &models.Customer{ID: id, Tier: newTier}, nil
+}
+
+// เปลี่ยนเป็นระดับไหนก็ได้ในสามระดับ (ตัดช่องว่างให้)
+func TestChangeTier_AcceptsAllTiers(t *testing.T) {
+	for _, tier := range []string{"general", "vip", " credit "} {
+		repo := &tierRepo{}
+		got, err := NewService(repo).ChangeTier(context.Background(), testCustomerID, "user-1", ChangeTier{Tier: tier})
+		require.NoError(t, err, "tier %q", tier)
+		assert.Equal(t, strings.TrimSpace(tier), repo.gotTier)
+		assert.Equal(t, strings.TrimSpace(tier), got.Tier)
+	}
+}
+
+func TestChangeTier_RejectsUnknownTier(t *testing.T) {
+	for _, tier := range []string{"Credit", "gold", ""} {
+		repo := &tierRepo{}
+		_, err := NewService(repo).ChangeTier(context.Background(), testCustomerID, "user-1", ChangeTier{Tier: tier})
+		requireDetail(t, err, "tier must be general, vip or credit")
+		assert.Empty(t, repo.gotTier, "tier %q ไม่ควรถึง repository", tier)
 	}
 }

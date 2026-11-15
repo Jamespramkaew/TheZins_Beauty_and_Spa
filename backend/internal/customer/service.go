@@ -21,6 +21,18 @@ var (
 	ErrDuplicateHN = _package.NewAppError("HN number already exists", _package.CodeConflict, "hn_no already exists") // 409
 )
 
+// ความยาวสูงสุดของช่องที่ไม่บังคับกรอก (ต้องตรงกับ CustomerFormModal.jsx)
+const (
+	maxNicknameLen = 50
+	maxNoteLen     = 1000 // ใช้กับ chronic_disease และ note
+)
+
+// validTiers = ระดับลูกค้าที่รับ ต้องตรงกับ CHECK ใน models/master.go + extra.sql
+// และ TIERS ใน frontend/src/features/customers/customerUtils.js
+var validTiers = map[string]bool{"general": true, "vip": true, "credit": true}
+
+const tierRule = "tier must be general, vip or credit"
+
 // NewCustomerDays = ลูกค้าที่เพิ่มเข้าระบบไม่เกินกี่วัน (นับ 24 ชม. ต่อวันจาก created_at) ถือเป็นลูกค้าใหม่
 // ต้องตรงกับ NEW_CUSTOMER_DAYS ใน frontend/src/features/customers/customerUtils.js (ป้าย "ลูกค้าใหม่")
 const NewCustomerDays = 7
@@ -53,8 +65,8 @@ func (s *service) Search(ctx context.Context, q SearchCustomersQuery) ([]models.
 		return nil, _package.PageMeta{}, err
 	}
 	tier := strings.TrimSpace(q.Tier)
-	if tier != "" && tier != "general" && tier != "vip" {
-		return nil, _package.PageMeta{}, invalid("tier must be general or vip")
+	if tier != "" && !validTiers[tier] {
+		return nil, _package.PageMeta{}, invalid(tierRule)
 	}
 	joined := strings.TrimSpace(q.Joined)
 	if joined != "" && joined != "new" && joined != "old" {
@@ -95,6 +107,10 @@ func (s *service) Create(ctx context.Context, req CreateCustomer) (*models.Custo
 		Lname:   strings.TrimSpace(req.Lname),
 		Tel:     strings.TrimSpace(req.Tel),
 		Address: strings.TrimSpace(req.Address),
+
+		Nickname:       strings.TrimSpace(req.Nickname),
+		ChronicDisease: strings.TrimSpace(req.ChronicDisease),
+		Note:           strings.TrimSpace(req.Note),
 	}
 
 	if err := checkText("hn_no", customer.HnNo, true, 20); err != nil {
@@ -107,6 +123,15 @@ func (s *service) Create(ctx context.Context, req CreateCustomer) (*models.Custo
 		return nil, err
 	}
 	if err := checkText("tel", customer.Tel, false, 20); err != nil {
+		return nil, err
+	}
+	if err := checkText("nickname", customer.Nickname, false, maxNicknameLen); err != nil {
+		return nil, err
+	}
+	if err := checkText("chronic_disease", customer.ChronicDisease, false, maxNoteLen); err != nil {
+		return nil, err
+	}
+	if err := checkText("note", customer.Note, false, maxNoteLen); err != nil {
 		return nil, err
 	}
 
@@ -146,6 +171,15 @@ func (s *service) Update(ctx context.Context, id string, req UpdateCustomer) (*m
 		return nil, err
 	}
 	if err := setText(fields, "tel", req.Tel, false, 20); err != nil {
+		return nil, err
+	}
+	if err := setText(fields, "nickname", req.Nickname, false, maxNicknameLen); err != nil {
+		return nil, err
+	}
+	if err := setText(fields, "chronic_disease", req.ChronicDisease, false, maxNoteLen); err != nil {
+		return nil, err
+	}
+	if err := setText(fields, "note", req.Note, false, maxNoteLen); err != nil {
 		return nil, err
 	}
 	if req.Address != nil {
@@ -188,8 +222,8 @@ func (s *service) ChangeTier(ctx context.Context, id, changedBy string, req Chan
 	}
 
 	tier := strings.TrimSpace(req.Tier)
-	if tier != "general" && tier != "vip" {
-		return nil, invalid("tier must be general or vip")
+	if !validTiers[tier] {
+		return nil, invalid(tierRule)
 	}
 
 	customer, err := s.repository.ChangeTier(ctx, id, tier, changedBy)

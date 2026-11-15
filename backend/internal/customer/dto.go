@@ -2,36 +2,42 @@ package customer
 
 // CreateCustomer รับ body ของ POST /api/customers
 type CreateCustomer struct {
-	HnNo      string  `json:"hn_no"` // ร้านกำหนดเอง ห้ามซ้ำ
-	Fname     string  `json:"fname"`
-	Lname     string  `json:"lname"`
-	Tel       string  `json:"tel"`
-	Address   string  `json:"address"`
-	CitizenID *string `json:"citizen_id"`
-	BDay      *string `json:"b_day"` // รูปแบบ YYYY-MM-DD เช่น 2000-01-31
+	HnNo           string  `json:"hn_no"` // ร้านกำหนดเอง ห้ามซ้ำ
+	Fname          string  `json:"fname"`
+	Lname          string  `json:"lname"`
+	Tel            string  `json:"tel"`
+	Address        string  `json:"address"`
+	CitizenID      *string `json:"citizen_id"`
+	BDay           *string `json:"b_day"` // รูปแบบ YYYY-MM-DD เช่น 2000-01-31
+	Nickname       string  `json:"nickname"`
+	ChronicDisease string  `json:"chronic_disease"` // โรคประจำตัว
+	Note           string  `json:"note"`            // ข้อมูลเพิ่มเติม เช่น อาการแพ้ยา
 }
 
 // UpdateCustomer รับ body ของ PATCH /api/customers/:id
 // ทุก field เป็น pointer: nil = ไม่ได้ส่งมา ไม่ต้องแก้
 type UpdateCustomer struct {
-	HnNo      *string `json:"hn_no"`
-	Fname     *string `json:"fname"`
-	Lname     *string `json:"lname"`
-	Tel       *string `json:"tel"`
-	Address   *string `json:"address"`
-	CitizenID *string `json:"citizen_id"`
-	BDay      *string `json:"b_day"`
+	HnNo           *string `json:"hn_no"`
+	Fname          *string `json:"fname"`
+	Lname          *string `json:"lname"`
+	Tel            *string `json:"tel"`
+	Address        *string `json:"address"`
+	CitizenID      *string `json:"citizen_id"`
+	BDay           *string `json:"b_day"`
+	Nickname       *string `json:"nickname"`
+	ChronicDisease *string `json:"chronic_disease"`
+	Note           *string `json:"note"`
 }
 
 // ChangeTier รับ body ของ POST /api/customers/:id/tier
 type ChangeTier struct {
-	Tier string `json:"tier"` // general หรือ vip
+	Tier string `json:"tier"` // general, vip หรือ credit
 }
 
 // SearchCustomersQuery = query string ของ GET /api/customers (รับเป็นข้อความ แปลงใน service)
 type SearchCustomersQuery struct {
-	Q        string // ค้น HN, ชื่อเต็ม หรือเบอร์โทร ว่าง = ลูกค้าที่สร้างล่าสุด
-	Tier     string // general หรือ vip ว่าง = ทุกระดับ
+	Q        string // ค้น HN, ชื่อเต็ม, ชื่อเล่น หรือเบอร์โทร ว่าง = ลูกค้าที่สร้างล่าสุด
+	Tier     string // general, vip หรือ credit ว่าง = ทุกระดับ
 	Joined   string // new (เพิ่มไม่เกิน NewCustomerDays วัน) หรือ old ว่าง = ทุกคน
 	Page     string // ว่าง = 1
 	PageSize string // ว่าง = 20 สูงสุด 100

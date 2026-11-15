@@ -24,7 +24,7 @@ function CustomerPicker({ onPick }) {
           type="search"
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="ค้นหาลูกค้าจากชื่อ HN หรือเบอร์โทร"
+          placeholder="ค้นหาลูกค้าจากชื่อ ชื่อเล่น HN หรือเบอร์โทร"
           aria-label="ค้นหาลูกค้า"
           autoFocus
           className="h-11 w-full rounded-control border border-line-strong bg-white pr-3 pl-10 text-sm placeholder:text-subtle focus:border-chart/40 focus:ring-3 focus:ring-chart/10 focus:outline-none"
@@ -48,6 +48,7 @@ function CustomerPicker({ onPick }) {
               >
                 <span className="font-medium text-ink [overflow-wrap:anywhere]">
                   {[customer.fname, customer.lname].filter(Boolean).join(' ')}
+                  {customer.nickname && ` (${customer.nickname})`}
                 </span>
                 <span className="shrink-0 text-xs text-muted">
                   {customer.hn_no}

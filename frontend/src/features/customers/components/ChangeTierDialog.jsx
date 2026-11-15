@@ -3,15 +3,17 @@ import { FiStar } from 'react-icons/fi'
 import Modal from '../../../components/Modal'
 import { customerApi } from '../../../api/customerApi'
 import { useToast } from '../../../hooks/useToast'
-import { fullName, tierOf } from '../customerUtils'
+import { TIER_VALUES, fullName, tierOf } from '../customerUtils'
+import TierBadge from './TierBadge'
 
-// Switches between the only two tiers: general ↔ vip. The backend records who changed it and when.
+// Pick any tier other than the current one. The backend records who changed it and when.
 function ChangeTierDialog({ customer, onClose, onChanged }) {
   const toast = useToast()
   const titleId = useId()
   const descriptionId = useId()
+  const options = TIER_VALUES.filter((tier) => tier !== customer.tier)
+  const [nextTier, setNextTier] = useState(options[0])
   const [pending, setPending] = useState(false)
-  const nextTier = customer.tier === 'vip' ? 'general' : 'vip'
   const name = fullName(customer)
 
   const changeTier = async () => {
@@ -32,12 +34,34 @@ function ChangeTierDialog({ customer, onClose, onChanged }) {
         <FiStar className="size-5" />
       </span>
       <h2 id={titleId} className="mt-4 text-lg font-bold text-ink [overflow-wrap:anywhere]">
-        เปลี่ยน “{name}” เป็น {tierOf(nextTier).label} ?
+        เปลี่ยนระดับของ “{name}”
       </h2>
       <p id={descriptionId} className="mt-1.5 text-sm text-muted">
-        จาก <span className="font-semibold text-ink">{tierOf(customer.tier).label}</span> เป็น{' '}
-        <span className="font-semibold text-ink">{tierOf(nextTier).label}</span> — ระบบเก็บประวัติว่าใครเปลี่ยนและเมื่อไหร่
+        ตอนนี้เป็น <span className="font-semibold text-ink">{tierOf(customer.tier).label}</span> — เลือกระดับใหม่
+        ระบบเก็บประวัติว่าใครเปลี่ยนและเมื่อไหร่
       </p>
+
+      <fieldset className="mt-4 space-y-2">
+        <legend className="sr-only">ระดับใหม่</legend>
+        {options.map((tier) => (
+          <label
+            key={tier}
+            className={`flex cursor-pointer items-center gap-3 rounded-control border px-4 py-3 transition ${
+              nextTier === tier ? 'border-primary bg-surface-2' : 'border-line-strong hover:bg-surface-2'
+            }`}
+          >
+            <input
+              type="radio"
+              name={`${titleId}-tier`}
+              value={tier}
+              checked={nextTier === tier}
+              onChange={() => setNextTier(tier)}
+              className="size-4 accent-primary"
+            />
+            <TierBadge tier={tier} />
+          </label>
+        ))}
+      </fieldset>
 
       <div className="mt-6 flex flex-wrap justify-end gap-2.5">
         <button

@@ -21,6 +21,23 @@ BEGIN
   END IF;
 END $$;
 
+-- customers.tier / tier_changes.new_tier: เพิ่มระดับ credit (ลูกค้าวงเงิน)
+-- AutoMigrate ไม่แก้ CHECK ที่มีชื่อนี้อยู่แล้ว DB เก่าจึงยังรับแค่ general/vip ต้อง DROP แล้วสร้างใหม่ที่นี่
+-- ถ้า constraint มี 'credit' อยู่แล้ว (DB ใหม่ หรือรันรอบก่อนแล้ว) จะข้ามไป · ถ้าเพิ่มระดับอีก ให้แก้คำที่เช็คใน LIKE ด้วย
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_customers_tier'
+                 AND pg_get_constraintdef(oid) LIKE '%credit%') THEN
+    ALTER TABLE customers DROP CONSTRAINT IF EXISTS chk_customers_tier;
+    ALTER TABLE customers ADD CONSTRAINT chk_customers_tier CHECK (tier IN ('general', 'vip', 'credit'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_tier_changes_new_tier'
+                 AND pg_get_constraintdef(oid) LIKE '%credit%') THEN
+    ALTER TABLE tier_changes DROP CONSTRAINT IF EXISTS chk_tier_changes_new_tier;
+    ALTER TABLE tier_changes ADD CONSTRAINT chk_tier_changes_new_tier CHECK (new_tier IN ('general', 'vip', 'credit'));
+  END IF;
+END $$;
+
 -- appointments: ห้องเดียวกันห้ามจองเวลาทับกัน (นับเฉพาะคิวที่ booked / done)
 -- ช่วงเวลาเป็นแบบ [start_at, end_at) จึงจองต่อกันพอดีได้ เช่น 10:00-11:00 กับ 11:00-12:00
 DO $$

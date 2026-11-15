@@ -1,6 +1,6 @@
 import { FiChevronRight, FiEdit2 } from 'react-icons/fi'
 import { formatDate } from '../../../utils/date'
-import { fullName, initialOf, tierOf } from '../customerUtils'
+import { fullName, initialOf, nameWithNickname, tierOf } from '../customerUtils'
 import NewCustomerBadge from './NewCustomerBadge'
 import TierBadge from './TierBadge'
 
@@ -41,7 +41,7 @@ function CustomerTable({ customers, selectedId, onSelect, onEdit }) {
                       aria-expanded={customer.id === selectedId}
                       className="rounded-sm text-left font-semibold text-chart [overflow-wrap:anywhere] underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-chart/20 focus-visible:outline-none"
                     >
-                      {fullName(customer)}
+                      {nameWithNickname(customer)}
                     </button>
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       <TierBadge tier={customer.tier} />
