@@ -1,7 +1,7 @@
 import { formatNumber } from '../../utils/format'
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 50]
-export const DEFAULT_CATEGORIES = ['facial', 'laser', 'massage', 'body']
+export const DEFAULT_CATEGORIES = ['facial', 'massage', 'body', 'spa', 'wax', 'all']
 
 // price / service_comm come from the API as decimal strings
 export const toNumber = (value) => {
@@ -18,9 +18,11 @@ export const categoryLabel = (category) => (category ? category.charAt(0).toUppe
 
 const CATEGORY_TONES = {
   facial: 'bg-[#F3EDF7] text-[#5B3A7A]',
-  laser: 'bg-[#EEF1F8] text-chart',
   massage: 'bg-gold-bg text-gold-ink',
   body: 'bg-[#E7F3F1] text-[#1F5E57]',
+  spa: 'bg-[#EEF1F8] text-chart',
+  wax: 'bg-[#FBEFEA] text-[#8A3F22]',
+  all: 'bg-primary/10 text-primary',
 }
 
 export const categoryTone = (category) => CATEGORY_TONES[category?.toLowerCase()] ?? 'bg-surface-2 text-muted'
