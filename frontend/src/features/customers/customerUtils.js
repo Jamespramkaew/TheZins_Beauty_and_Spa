@@ -13,9 +13,9 @@ export const CUSTOMER_FILTERS = [
 ]
 
 export const TIERS = {
-  vip: { label: 'VIP', className: 'bg-gold-bg text-gold-ink', avatarClassName: 'bg-gold-bg text-gold-ink' },
+  vip: { label: 'VIP', className: 'bg-gold/50 text-gold-ink', avatarClassName: 'bg-gold/30 text-gold-ink' },
   general: { label: 'ทั่วไป', className: 'bg-surface-2 text-muted', avatarClassName: 'bg-surface-2 text-muted' },
-  credit: { label: 'วงเงิน', className: 'bg-chart/10 text-chart', avatarClassName: 'bg-chart/10 text-chart' },
+  credit: { label: '$ วงเงิน', className: 'bg-chart/80 text-white', avatarClassName: 'bg-chart/80 text-white' },
 }
 
 // Every tier the backend accepts (validTiers in backend/internal/customer/service.go), in display order
