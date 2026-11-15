@@ -1,5 +1,6 @@
 import { FiMinus, FiPlus, FiRefreshCw, FiSearch, FiWifiOff, FiX } from 'react-icons/fi'
 import { loadErrorText } from '../stockErrors'
+import { stockCategoryLabel } from '../stockUtils'
 import { outlineButtonClass } from './styles'
 
 export function Field({ id, label, required, optional, hint, error, children }) {
@@ -58,7 +59,7 @@ export function CategoryText({ category }) {
       }`}
     >
       {premium && <span aria-hidden="true" className="size-1.5 rotate-45 bg-gold" />}
-      {category}
+      {stockCategoryLabel(category)}
     </span>
   )
 }

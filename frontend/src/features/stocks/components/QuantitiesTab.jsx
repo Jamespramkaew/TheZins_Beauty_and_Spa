@@ -4,17 +4,13 @@ import { stockLogApi } from '../../../api/stockLogApi'
 import Pagination from '../../../components/ui/Pagination'
 import Toggle from '../../../components/ui/Toggle'
 import { formatNumber } from '../../../utils/format'
-import { DEFAULT_QTY_FILTERS, MAX_PAGE_SIZE, PAGE_SIZE_OPTIONS, branchColor } from '../stockUtils'
+import { DEFAULT_QTY_FILTERS, MAX_PAGE_SIZE, PAGE_SIZE_OPTIONS, STOCK_CATEGORIES, branchColor } from '../stockUtils'
 import { useQuery } from '../../../hooks/useQuery'
 import RowMenu from './RowMenu'
 import { filterSelectClass } from './styles'
 import { BranchDot, CategoryText, EmptyState, LoadError, NoResults, SegmentedControl, SkeletonRows } from './ui'
 
-const CATEGORY_OPTIONS = [
-  { value: '', label: 'ทั้งหมด' },
-  { value: 'premium', label: 'Premium' },
-  { value: 'normal', label: 'Normal' },
-]
+const CATEGORY_OPTIONS = [{ value: '', label: 'ทั้งหมด' }, ...STOCK_CATEGORIES]
 
 const LOW_BG = 'bg-[#FFF5D6]'
 const OUT_BG = 'bg-[#FDEEEE]'
