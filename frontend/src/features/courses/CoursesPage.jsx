@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FiEye, FiGrid, FiList, FiPlus, FiSearch } from 'react-icons/fi'
 import { courseApi } from '../../api/courseApi'
 import { useAuth } from '../../hooks/useAuth'
@@ -9,8 +9,9 @@ import CourseDetailModal from './components/CourseDetailModal'
 import CourseFormModal from './components/CourseFormModal'
 import CourseTable from './components/CourseTable'
 import DeleteCourseDialog from './components/DeleteCourseDialog'
+import FilterGroup from '../../components/ui/FilterGroup'
 import Pagination from '../../components/ui/Pagination'
-import { DEFAULT_CATEGORIES, PAGE_SIZE_OPTIONS } from './courseUtils'
+import { DEFAULT_CATEGORIES, PAGE_SIZE_OPTIONS, categoryLabel, countByCategory } from './courseUtils'
 import { useCourses } from './useCourses'
 
 const VIEWS = [
@@ -24,6 +25,7 @@ function CoursesPage() {
   const toast = useToast()
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('') // '' = every category
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0])
   const [view, setView] = useState('table')
@@ -31,7 +33,12 @@ function CoursesPage() {
   const [form, setForm] = useState(null) // { course } — course null = create
   const [deleting, setDeleting] = useState(null)
   const [togglingIds, setTogglingIds] = useState(() => new Set())
-  const { courses, meta, error, loading, loaded, stats, reload, replaceCourse } = useCourses({ search, page, pageSize })
+  const { courses, allCourses, meta, error, loading, loaded, stats, reload, replaceCourse } = useCourses({
+    search,
+    category,
+    page,
+    pageSize,
+  })
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -42,6 +49,14 @@ function CoursesPage() {
   }, [searchInput])
 
   const categories = [...new Set([...DEFAULT_CATEGORIES, ...(stats?.categories ?? [])])]
+  const categoryOptions = [{ value: '', label: 'ทั้งหมด' }, ...categories.map((value) => ({ value, label: categoryLabel(value) }))]
+  // No badges until every course has loaded, rather than showing wrong numbers
+  const categoryCounts = useMemo(() => (allCourses ? countByCategory(allCourses, search) : {}), [allCourses, search])
+
+  const pickCategory = (value) => {
+    setCategory(value)
+    setPage(1)
+  }
 
   const toggleActive = async (course) => {
     setTogglingIds((ids) => new Set(ids).add(course.id))
@@ -132,6 +147,19 @@ function CoursesPage() {
         </div>
       </div>
 
+      {/* Scrolls sideways on narrow screens instead of squeezing the buttons */}
+      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div className="w-max">
+          <FilterGroup
+            label="กรองตามหมวดหมู่"
+            options={categoryOptions}
+            value={category}
+            counts={categoryCounts}
+            onChange={pickCategory}
+          />
+        </div>
+      </div>
+
       <section aria-busy={loading} className={`transition-opacity ${loading && loaded ? 'opacity-60' : ''}`}>
         {error ? (
           <EmptyState title="โหลดรายการคอร์สไม่สำเร็จ" detail="ตรวจสอบการเชื่อมต่อหรือการเข้าสู่ระบบ แล้วลองอีกครั้ง">
@@ -147,8 +175,14 @@ function CoursesPage() {
           <EmptyState title="กำลังโหลดรายการคอร์ส…" />
         ) : courses.length === 0 ? (
           <EmptyState
-            title={search ? 'ไม่พบคอร์สที่ค้นหา' : 'ยังไม่มีคอร์ส'}
-            detail={search ? `ไม่มีคอร์สที่ชื่อมีคำว่า “${search}”` : canManage ? 'กด “เพิ่มคอร์ส” เพื่อเริ่มต้น' : undefined}
+            title={search || category ? 'ไม่พบคอร์สที่ค้นหา' : 'ยังไม่มีคอร์ส'}
+            detail={
+              search || category
+                ? [search && `ชื่อมีคำว่า “${search}”`, category && `หมวด ${categoryLabel(category)}`].filter(Boolean).join(' · ')
+                : canManage
+                  ? 'กด “เพิ่มคอร์ส” เพื่อเริ่มต้น'
+                  : undefined
+            }
           />
         ) : view === 'card' ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

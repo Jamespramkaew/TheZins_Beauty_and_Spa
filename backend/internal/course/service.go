@@ -36,7 +36,12 @@ func (s *service) GetAllCourse(ctx context.Context, q GetAllCourseQuery) ([]Cour
 	if err != nil {
 		return nil, _package.PageMeta{}, err
 	}
-	courses, total, err := s.repository.GetAllCourse(ctx, strings.TrimSpace(q.Search), page, pageSize)
+	category := strings.TrimSpace(q.Category)
+	// ยาวเกินที่คอลัมน์เก็บได้ (50) ไม่มีทางตรงกับคอร์สไหน ตอบ 400 ให้รู้ว่าส่งค่าผิด
+	if utf8.RuneCountInString(category) > 50 {
+		return nil, _package.PageMeta{}, invalid("category must be at most 50 characters")
+	}
+	courses, total, err := s.repository.GetAllCourse(ctx, strings.TrimSpace(q.Search), category, page, pageSize)
 	if err != nil {
 		return nil, _package.PageMeta{}, err
 	}

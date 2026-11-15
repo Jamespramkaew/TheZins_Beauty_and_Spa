@@ -14,6 +14,20 @@ export const pricePerSession = (price, maxSession) =>
 
 export const formatValidDay = (validDay) => (validDay == null ? '∞ ไม่หมดอายุ' : `${formatNumber(validDay)} วัน`)
 
+// Courses per category among `courses`, for the filter badges ('' = all of them).
+// Follows the search box like the list does: name contains `search`, ignoring case.
+export const countByCategory = (courses, search) => {
+  const needle = search.toLowerCase()
+  const counts = { '': 0 }
+  for (const course of courses) {
+    if (needle && !course.name.toLowerCase().includes(needle)) continue
+    counts[''] += 1
+    const category = course.category?.trim().toLowerCase()
+    if (category) counts[category] = (counts[category] ?? 0) + 1
+  }
+  return counts
+}
+
 export const categoryLabel = (category) => (category ? category.charAt(0).toUpperCase() + category.slice(1) : '')
 
 const CATEGORY_TONES = {

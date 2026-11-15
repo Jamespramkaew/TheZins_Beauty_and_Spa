@@ -10,7 +10,7 @@ import (
 )
 
 type Repository interface {
-	GetAllCourse(ctx context.Context, search string, page, pageSize int) ([]models.Course, int64, error)
+	GetAllCourse(ctx context.Context, search, category string, page, pageSize int) ([]models.Course, int64, error)
 	FindCourseByName(ctx context.Context, name string) (*models.Course, error)
 	CreateCourse(ctx context.Context, course models.Course, items []models.CourseItem) (models.Course, error)
 	FindStocksByIds(ctx context.Context, ids []string) ([]models.Stock, error)
@@ -32,10 +32,14 @@ func NewRepository(db *gorm.DB) Repository {
 
 // GetAllCourse คืนคอร์สทีละหน้า เรียงตามชื่อ พร้อมของที่คอร์สใช้ (items + stock) · search ว่าง = ทุกคอร์ส
 // คืนจำนวนที่ตรงเงื่อนไขทั้งหมด (total) ไว้ทำ meta
-func (r *repository) GetAllCourse(ctx context.Context, search string, page, pageSize int) ([]models.Course, int64, error) {
+// category ว่าง = ทุกหมวด · เทียบแบบไม่สนตัวพิมพ์เล็กใหญ่ (Facial = facial) แต่ต้องตรงทั้งคำ
+func (r *repository) GetAllCourse(ctx context.Context, search, category string, page, pageSize int) ([]models.Course, int64, error) {
 	all := r.db.WithContext(ctx).Model(&models.Course{})
 	if search != "" {
 		all = all.Where("name ILIKE ?", "%"+escapeLike(search)+"%")
+	}
+	if category != "" {
+		all = all.Where("LOWER(category) = LOWER(?)", category)
 	}
 	// Session ทำให้ใช้ query เดียวกันซ้ำได้ทั้งตอน Count และ Find
 	all = all.Session(&gorm.Session{})

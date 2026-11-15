@@ -25,11 +25,12 @@ type fakeRepo struct {
 	items      map[string][]models.CourseItem // ของที่แต่ละคอร์สใช้อยู่ (key = course id)
 	savedItems *[]models.CourseItem           // items ที่ส่งเข้า UpdateCourse (nil = ไม่แตะ)
 
-	related     map[string]bool // course id ที่มีตารางอื่นอ้างถึง
-	hardErr     error           // error ที่ HardDeleteCourse จะคืน (จำลอง FK)
-	softDeleted []string
-	hardDeleted []string
-	lastSearch  string
+	related      map[string]bool // course id ที่มีตารางอื่นอ้างถึง
+	hardErr      error           // error ที่ HardDeleteCourse จะคืน (จำลอง FK)
+	softDeleted  []string
+	hardDeleted  []string
+	lastSearch   string
+	lastCategory string
 }
 
 func (r *fakeRepo) CheckCourseHasRelation(ctx context.Context, courseId string) (bool, error) {
@@ -49,8 +50,8 @@ func (r *fakeRepo) HardDeleteCourse(ctx context.Context, courseId string) error 
 	return nil
 }
 
-func (r *fakeRepo) GetAllCourse(ctx context.Context, search string, page, pageSize int) ([]models.Course, int64, error) {
-	r.lastSearch = search
+func (r *fakeRepo) GetAllCourse(ctx context.Context, search, category string, page, pageSize int) ([]models.Course, int64, error) {
+	r.lastSearch, r.lastCategory = search, category
 	return r.courses, int64(len(r.courses)), nil
 }
 
@@ -450,4 +451,28 @@ func equalItems(got, want []models.CourseItem) bool {
 		}
 	}
 	return true
+}
+
+// category ตัดช่องว่างแล้วส่งต่อ · ว่าง = ทุกหมวด · ยาวเกิน 50 = 400 ไม่ถึง repository
+func TestGetAllCourse_PassesTrimmedCategory(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{{" facial ", "facial"}, {"Spa", "Spa"}, {"", ""}} {
+		repo := newFakeRepo()
+		_, _, err := NewService(repo).GetAllCourse(context.Background(), GetAllCourseQuery{Category: tc.in})
+		if err != nil {
+			t.Fatalf("category %q: %v", tc.in, err)
+		}
+		if repo.lastCategory != tc.want {
+			t.Errorf("category %q → %q, want %q", tc.in, repo.lastCategory, tc.want)
+		}
+	}
+
+	repo := newFakeRepo()
+	repo.lastCategory = "untouched"
+	_, _, err := NewService(repo).GetAllCourse(context.Background(), GetAllCourseQuery{Category: strings.Repeat("ก", 51)})
+	if errCode(err) != _package.CodeValidation {
+		t.Errorf("category over 50 chars must be 400, got %v", err)
+	}
+	if repo.lastCategory != "untouched" {
+		t.Errorf("category over 50 chars must not reach the repository")
+	}
 }
