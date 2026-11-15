@@ -6,16 +6,13 @@ import Toggle from '../../../components/ui/Toggle'
 import { stockApi } from '../../../api/stockApi'
 import { useToast } from '../../../hooks/useToast'
 import { mapStockError } from '../stockErrors'
-import { toNumber } from '../stockUtils'
+import { STOCK_CATEGORIES, toNumber } from '../stockUtils'
 import { inputClass, outlineButtonClass, primaryButtonClass } from './styles'
 import { Field, ModalHeader, SegmentedControl } from './ui'
 
 const NAME_MAX = 150
 
-const CATEGORY_OPTIONS = [
-  { value: 'premium', label: 'Premium' },
-  { value: 'normal', label: 'Normal' },
-]
+const CATEGORY_OPTIONS = STOCK_CATEGORIES
 
 const isWhole = (value) => /^\d+$/.test(String(value).trim())
 

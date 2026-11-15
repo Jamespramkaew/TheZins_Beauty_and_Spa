@@ -7,6 +7,16 @@ dayjs.extend(buddhistEra)
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
+// Stock category: the DB still stores premium / normal; only the name on screen changed.
+// premium → Treatment (used in courses) · normal → Retail (sold at the counter)
+export const STOCK_CATEGORIES = [
+  { value: 'premium', label: 'Treatment' },
+  { value: 'normal', label: 'Retail' },
+]
+
+export const stockCategoryLabel = (category) =>
+  STOCK_CATEGORIES.find((option) => option.value === category)?.label ?? category
+
 export const DEFAULT_QTY_FILTERS = { search: '', category: '', active: 'true', branchId: '', lowStock: false }
 export const DEFAULT_LOG_FILTERS = { preset: '7d', from: '', to: '', stockId: '', logType: '', direction: '', branchId: '' }
 export const MAX_PAGE_SIZE = 100 // backend max
